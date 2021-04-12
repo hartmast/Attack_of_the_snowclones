@@ -316,8 +316,13 @@ This dataset can now be used as input for distinctive collexeme analysis.
 
 ```{r collexanal}
 
-collex.dist(lx) %>% pretty_df() %>% kbl() %>%   scroll_box(width = "500px", height = "200px")
-collex.dist(ly) %>% pretty_df() %>% kbl() %>%   scroll_box(width = "500px", height = "200px")
+collex.dist(lx) %>% pretty_df() %>% kbl() %>% 
+   kable_material(c("striped", "hover")) %>% scroll_box(width = "800px", height = "200px")
+collex.dist(ly) %>% pretty_df() %>% kbl() %>%  
+   kable_material(c("striped", "hover")) %>% scroll_box(width = "800px", height = "200px")
 
 
 ```
+
+
+[Back to top page](https://hartmast.github.io/Attack_of_the_snowclones/)

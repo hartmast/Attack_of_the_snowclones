@@ -147,9 +147,12 @@ Next, we perform a collexeme analysis using Flach's `collostructions` package.
 ```{r collex}
 
 # perform collexeme analysis
-collex(d_tbl, corpsize = sum(encow$Freq)) %>% head(20) %>% kbl() %>%   kable_styling(bootstrap_options = c("striped", "hover", "responsive"))
+collex(d_tbl, corpsize = sum(encow$Freq)) %>% kbl() %>%  
+   kable_material(c("striped", "hover")) %>% scroll_box(width = "800px", height = "200px")
 
 
 ```
 
 
+
+[Back to top page](https://hartmast.github.io/Attack_of_the_snowclones/)

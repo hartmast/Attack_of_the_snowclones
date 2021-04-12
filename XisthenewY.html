@@ -496,9 +496,10 @@ ly$Freq_encow &lt;- sapply(1:nrow(ly), function(i) sum(encow[grepw(ly$lemma[i], 
 lx &lt;- filter(lx, Freq_encow &gt; 0)
 ly &lt;- filter(ly, Freq_encow &gt; 0)</code></pre>
 <p>This dataset can now be used as input for distinctive collexeme analysis.</p>
-<pre class="r"><code>collex.dist(lx) %&gt;% pretty_df() %&gt;% kbl() %&gt;%   scroll_box(width = &quot;500px&quot;, height = &quot;200px&quot;)</code></pre>
-<div style="border: 1px solid #ddd; padding: 0px; overflow-y: scroll; height:200px; overflow-x: scroll; width:500px; ">
-<table>
+<pre class="r"><code>collex.dist(lx) %&gt;% pretty_df() %&gt;% kbl() %&gt;% 
+   kable_material(c(&quot;striped&quot;, &quot;hover&quot;)) %&gt;% scroll_box(width = &quot;800px&quot;, height = &quot;200px&quot;)</code></pre>
+<div style="border: 1px solid #ddd; padding: 0px; overflow-y: scroll; height:200px; overflow-x: scroll; width:800px; ">
+<table class=" lightable-material lightable-striped lightable-hover" style="font-family: &quot;Source Sans Pro&quot;, helvetica, sans-serif; margin-left: auto; margin-right: auto;">
 <thead>
 <tr>
 <th style="text-align:left;position: sticky; top:0; background-color: #FFFFFF;">
@@ -50115,9 +50116,10 @@ Y
 </ul></li>
 </ul></li>
 </ul>
-<pre class="r"><code>collex.dist(ly) %&gt;% pretty_df() %&gt;% kbl() %&gt;%   scroll_box(width = &quot;500px&quot;, height = &quot;200px&quot;)</code></pre>
-<div style="border: 1px solid #ddd; padding: 0px; overflow-y: scroll; height:200px; overflow-x: scroll; width:500px; ">
-<table>
+<pre class="r"><code>collex.dist(ly) %&gt;% pretty_df() %&gt;% kbl() %&gt;%  
+   kable_material(c(&quot;striped&quot;, &quot;hover&quot;)) %&gt;% scroll_box(width = &quot;800px&quot;, height = &quot;200px&quot;)</code></pre>
+<div style="border: 1px solid #ddd; padding: 0px; overflow-y: scroll; height:200px; overflow-x: scroll; width:800px; ">
+<table class=" lightable-material lightable-striped lightable-hover" style="font-family: &quot;Source Sans Pro&quot;, helvetica, sans-serif; margin-left: auto; margin-right: auto;">
 <thead>
 <tr>
 <th style="text-align:left;position: sticky; top:0; background-color: #FFFFFF;">
@@ -89393,6 +89395,7 @@ Y
 </ul></li>
 </ul></li>
 </ul>
+<p><a href="https://hartmast.github.io/Attack_of_the_snowclones/">Back to top page</a></p>
 </div>
 
 
