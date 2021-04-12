@@ -1,0 +1,323 @@
+---
+title: "X is the new Y"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Preliminaries
+
+session info:
+
+```{r sessionInfo, message = FALSE, warning = FALSE}
+
+sessionInfo()
+
+```
+
+Install and load packages
+
+```{r pkg, message = FALSE, warning = FALSE}
+
+# install CRAN packages (if not yet installed)
+sapply(c("data.table", "tidyverse", "devtools", "readxl", "kableExtra", "ngram", "networkD3", "igraph", "network", "patchwork", "koRpus", "pbapply", "tidytext", "cluster", "ggrepel", "animation", "kableExtra"), function(x) if(!is.element(x, installed.packages())) install.packages(x, dependencies = T))
+
+# install non-CRAN packages (if not yet installed)
+if(!is.element("concordances", installed.packages())) {
+devtools::install_github("hartmast/concordances")
+}
+
+# if this doesn't work, check sfla.ch for the package
+if(!is.element("collostructions", installed.packages())) {
+  install.packages("https://sfla.ch/wp-content/uploads/2021/02/collostructions_0.2.0.tar.gz", repos = NULL)
+}
+
+# load packages
+library(readxl)
+library(tidyverse)
+library(ngram)
+library(networkD3)
+library(igraph)
+library(network)
+library(patchwork)
+library(koRpus)
+library(pbapply)
+library(tidytext)
+library(cluster)
+library(ggrepel)
+library(animation)
+library(kableExtra)
+library(collostructions) # available at sflach.ch
+library(concordances) #available at github.com/hartmast/concordances
+
+
+```
+
+## Helper functions
+
+The following commands define a few helper functions that will be used in the following steps:
+
+```{r hlp}
+
+
+# logarithmize and return 0 instead of Inf if x==0
+log0 <- function(x) {
+  x <- ifelse(x == 0, 0, log(x))
+  return(x)
+}
+
+# function for "prettyfying" df output
+# inspired by https://github.com/rmcelreath/rethinking/blob/d0978c7f8b6329b94efa2014658d750ae12b1fa2/R/utilities.r
+pretty_df <- function(df) {
+  
+  # function for rounding
+  round_this <- function(x, digits = 2) ifelse(x < 1, signif(x, digits = digits), round(x, digits = 2))
+  
+  # function for getting prettyfied dataframe
+  df_pretty <- as.data.frame(lapply(1:length(df), 
+                       function(i) if(!class(df[[i]]) %in% c("character", "factor"))
+                       {
+                         round_this(df[[i]])
+                       } else {
+                         return(df[[i]])
+                       })
+  )
+  
+  # set names to original names
+  colnames(df_pretty) <- colnames(df)
+  return(df_pretty)
+  
+  
+}
+
+# search for entire words
+grepw <- function(pattern, x, perl = F, ...) {
+  grep(paste("^", pattern, "$", sep="", collapse=""), x, perl = perl, ...)
+}
+
+
+
+```
+
+
+## Read in data
+
+```{r readdata}
+
+d <- read_xlsx("ENCOW_x_is_the_new_y_without_false_hits.xlsx")
+
+```
+
+## Data wrangling
+
+We exclude false hits, and we semi-automatically identify the heads of compounds and phrases. (In the data, the x and y elements have been lemmatized manually; wherever an element consists of a multi-word phrase and the head is not the rightmost element, the head has been highlighted via UPPERCASE; the function below uses this markup to identify the heads.)
+
+```{r datawrangling}
+
+
+# exclude false hits ------------------------------------------------------
+
+d <- filter(d, keep == "y")
+
+
+# add wordcount for x and y lemmas ----------------------------------------
+
+d$wordcount_x <- sapply(1:nrow(d), function(i) wordcount(trimws(d$Lemma_x[i])))
+d$wordcount_y <- sapply(1:nrow(d), function(i) wordcount(trimws(d$Lemma_y[i])))
+
+
+
+# get heads of compounds and phrases --------------------------------------
+
+# find instances in which there are words
+# written entirely in uppercase (= our way of
+# marking heads in the data, unless in the case of
+# right-hand heads)
+
+# empty columns for heads
+d$head_x <- NA; d$head_y <- NA
+
+# add wordcount for x and y lemmas 
+d$wordcount_x <- sapply(1:nrow(d), function(i) wordcount(trimws(d$Lemma_x[i])))
+d$wordcount_y <- sapply(1:nrow(d), function(i) wordcount(trimws(d$Lemma_y[i])))
+
+
+# get heads
+for(i in 1:nrow(d)) {
+  
+  if(d$wordcount_x[i]>1) {
+    if(d$pos_x[i]!="NE" & grepl("[A-Z]{2,}", d$Lemma_x[i])) {
+      d$head_x[i] <- tolower(unlist(strsplit(d$Lemma_x[i], " "))[grepl("[A-Z]{2,}", unlist(strsplit(d$Lemma_x[i], " ")))][1])
+    } else{
+      temp <- unlist(strsplit(d$Lemma_x[i], " "))
+      d$head_x[i] <- tolower(temp[length(temp)])
+    }
+  } else {
+    d$head_x[i] <- tolower(d$Lemma_x[i])
+  }
+  
+  
+  if(d$wordcount_y[i]>1) {
+    if(d$pos_y[i]!="NE" & grepl("[A-Z]{2,}", d$Lemma_y[i])) {
+      d$head_y[i] <- tolower(unlist(strsplit(d$Lemma_y[i], " "))[grepl("[A-Z]{2,}", unlist(strsplit(d$Lemma_y[i], " ")))][1])
+    } else{
+      temp <- unlist(strsplit(d$Lemma_y[i], " "))
+      d$head_y[i] <- tolower(temp[length(temp)])
+    }
+  } else {
+    d$head_y[i] <- tolower(d$Lemma_y[i])
+  }
+  
+  
+}
+
+# remove all with "unclear" -----------------------------------------------
+
+# backup copy for subsequent analysis
+d_backup <- d
+
+d <- d[-which(d$concept_x=="unclear" | d$concept_y=="unclear"),]
+
+
+```
+
+## Explore concepts
+
+The data have been annotated for the concepts of the x and y elements. We use heatmaps to explore the co-occurrence of different concpt categories.
+
+```{r cnc, message = FALSE, warning = FALSE}
+
+# network ----------------------------------------------------------------
+d$concept_x <- factor(d$concept_x); d$concept_y <- factor(d$concept_y)
+tbl <- d %>% select(concept_x, concept_y) %>% table %>% as.data.frame
+tbl$number_x <- as.numeric(factor(tbl$concept_x))
+tbl$number_y <- as.numeric(factor(tbl$concept_y))
+
+# add a column in which the frequency is 0 if
+# concept_x == concept_y
+tbl$Freq_noself <- ifelse(tbl$concept_x == tbl$concept_y, NA, tbl$Freq)
+
+# sort factors by frequency in concept_x ----------------------------------
+
+conc_by_freq <- d$concept_x %>% table %>% sort(decreasing = T) %>% rownames()
+tbl$concept_x <- factor(tbl$concept_x, levels = conc_by_freq)
+tbl$concept_y <- factor(tbl$concept_y, levels = conc_by_freq)
+
+# heatmaps ----------------------------------------------------------------
+
+tbl %>% ggplot(aes(x = concept_x, y = concept_y, fill = log0(Freq))) +
+  geom_tile() + scale_fill_gradient(low = "yellow", high = "darkred") +
+  theme(axis.text.x = element_text(angle=45, hjust=.9)) +
+  guides(fill = guide_legend(title = "LogFreq"))
+
+( p1 <- tbl %>% filter(Freq > 0) %>% ggplot(aes(x = concept_x, y = concept_y, fill = log0(Freq), label = Freq)) +
+  geom_tile() + scale_fill_gradient(low = "yellow", high = "darkred") +
+    guides(fill = guide_legend(title = "LogFreq")) + theme_classic() +
+  theme(axis.text.x = element_text(angle=45, hjust=.9)) +
+  geom_text(col = ifelse(log(filter(tbl, Freq > 0)$Freq > 6), "black", "white"), size = 4) +
+    theme(axis.text = element_text(size = 18)) +
+    theme(axis.title = element_text(size = 18)) +
+    theme(strip.text = element_text(size = 18)) +
+    theme(legend.text = element_text(size = 18)) +
+    theme(legend.title = element_text(size = 18, face = "bold")) +
+    theme(text = element_text(size = 18))
+    )
+ 
+
+( p2 <- tbl %>% filter(Freq > 0) %>% 
+  ggplot(aes(x = concept_x, y = concept_y, fill = log0(Freq_noself), label = Freq_noself)) +
+  geom_tile() + scale_fill_gradient(low = "yellow", high = "darkred") +
+  guides(fill = guide_legend(title = "LogFreq")) + theme_classic() +
+  theme(axis.text.x = element_text(angle=45, hjust=.9)) +
+  geom_text(col = ifelse(log(filter(tbl, Freq > 0)$Freq_noself > 6), "black", "white"), size = 4) ) +
+  theme(axis.text = element_text(size = 18)) +
+  theme(axis.title = element_text(size = 18)) +
+  theme(strip.text = element_text(size = 18)) +
+  theme(legend.text = element_text(size = 18)) +
+  theme(legend.title = element_text(size = 18, face = "bold")) +
+  theme(text = element_text(size = 18))
+  
+
+
+
+```
+
+## Collostructional analysis
+
+For performing the collostructional analysis, we draw on a manual lemmatization of the items in the x and y slot. We first read in the lemmatization table.
+
+```{r lmtz1, message = FALSE, warning = FALSE, eval = FALSE}
+# export heads for lemmatization ------------------------------------------
+c(d %>% filter(!(concept_x=="person" & pos_x=="NE")) %>% select(head_x),
+  d %>% filter(!(concept_y=="person" & pos_y=="NE")) %>% select(head_y)) %>%
+  unlist %>% unique %>% as.data.frame 
+#%>% write_excel_csv("lemmatization.csv")
+
+```
+
+```{r lmtz2, message = FALSE, warning = FALSE}
+
+# re-import lemmatized lists ----------------------------------------------
+
+l <- read_csv("lemmatization.csv")
+
+```
+
+Now we generate frequency lists with the help of the original dataframe and the lemmatization table.
+
+```{r frqs, message = FALSE, warning = FALSE}
+
+# get frequency of x & y lemmas -----------------------------------------------
+
+lx <- left_join(tibble(word = d$head_x),
+          l) %>% na.omit %>% select(lemma) %>% table %>% as.data.frame(stringsAsFactors = F) %>% setNames(c("lemma", "Freq"))
+
+
+ly <- left_join(tibble(word = d$head_y),
+                l) %>% na.omit %>% select(lemma) %>% table %>% as.data.frame(stringsAsFactors = F) %>% setNames(c("lemma", "Freq"))
+
+
+```
+
+We additionally read in the ENCOW frequency list (available at https://www.webcorpora.org/opendata/, only relevant subset used here) to get the corpus frequencies of the lemmas in question.
+
+
+```{r encow}
+
+encow <- read_csv("x_is_the_new_y_encow_frequencies.csv")
+
+```
+
+Using this dataset, we add the corpus frequencies to the frequency tables created before.
+
+```{r frqs2}
+
+# add frequencies -----------------------------------------------
+lx$Freq_encow <- sapply(1:nrow(lx), function(i) sum(encow[grepw(lx$lemma[i], encow$word),]$Freq_encow))
+ly$Freq_encow <- sapply(1:nrow(ly), function(i) sum(encow[grepw(ly$lemma[i], encow$word),]$Freq_encow))
+
+
+```
+
+Given that we draw on a manually lemmatized dataset, while the ENCOW frequency table is based on automatically tagged data, the match is not perfect. Thus, there are a few lemmas that are not attested at all in the ENCOW lemma list. As this only affects a few lemmas, they are discarded in the next step.
+
+```{r discardzeros}
+
+# omit all that are not attested in ENCOW
+lx <- filter(lx, Freq_encow > 0)
+ly <- filter(ly, Freq_encow > 0)
+
+```
+
+
+This dataset can now be used as input for distinctive collexeme analysis.
+
+```{r collexanal}
+
+collex.dist(lx) %>% pretty_df() %>% kbl() %>%   scroll_box(width = "500px", height = "200px")
+collex.dist(ly) %>% pretty_df() %>% kbl() %>%   scroll_box(width = "500px", height = "200px")
+
+
+```
