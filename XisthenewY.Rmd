@@ -22,7 +22,7 @@ Install and load packages
 ```{r pkg, message = FALSE, warning = FALSE}
 
 # install CRAN packages (if not yet installed)
-sapply(c("data.table", "tidyverse", "devtools", "readxl", "kableExtra", "ngram", "networkD3", "igraph", "network", "patchwork", "koRpus", "pbapply", "tidytext", "cluster", "ggrepel", "animation", "kableExtra"), function(x) if(!is.element(x, installed.packages())) install.packages(x, dependencies = T))
+sapply(c("data.table", "tidyverse", "devtools", "readxl", "kableExtra", "ngram", "networkD3", "igraph", "network", "patchwork", "koRpus", "pbapply", "tidytext", "cluster", "ggrepel", "animation", "kableExtra", "DT"), function(x) if(!is.element(x, installed.packages())) install.packages(x, dependencies = T))
 
 # install non-CRAN packages (if not yet installed)
 if(!is.element("concordances", installed.packages())) {
@@ -49,6 +49,7 @@ library(cluster)
 library(ggrepel)
 library(animation)
 library(kableExtra)
+library(DT)
 library(collostructions) # available at sflach.ch
 library(concordances) #available at github.com/hartmast/concordances
 
@@ -325,4 +326,196 @@ collex.dist(ly) %>% pretty_df() %>% kbl() %>%
 ```
 
 
+## Semantic vector-space analysis
+
+To assess the semantics of the slot fillers in more detail, we use a semantic vector-space approach. To this end, we first add a column with the manually corrected lemmas to the dataframe.
+
+```{r}
+
+# add lemmatization to head -----------------------------------------------
+
+d <- left_join(d, rename(l, c(lemma_head_x = lemma)), by = c("head_x" = "word"), all.x = T)
+d <- left_join(d, rename(l, c(lemma_head_y = lemma)), by = c("head_y" = "word"), all.x = T)
+
+# fill NA head columns
+d$lemma_head_x <- ifelse(is.na(d$lemma_head_x), d$head_x, d$lemma_head_x)
+d$lemma_head_y <- ifelse(is.na(d$lemma_head_y), d$head_y, d$lemma_head_y)
+
+
+```
+
+A list of collocates for the lexical items in the x and y slots was compiled using the downloadable portion of the ENCOW corpus.
+
+```{r}
+
+# collocates
+coll <- read_csv("../ENCOW_x_is_the_new_y/distsem/collocates.csv")
+
+```
+
+We use the collocates to compute Positive Pairwise Mutual Information (PPMI), which in turn allows us to calculate the Cosine distance following Levshina (2015).
+
+```{r}
+
+# "collocate" column to rownames:
+coll <- as.data.frame(coll)
+rownames(coll) <- coll$collocate
+coll <- coll[ , -1] # remove first column
+coll <- t(coll) # switch rows and columns
+
+
+# get PPMI ----
+
+# get expected frequencies
+coll <- as.matrix(coll)
+coll.exp <- chisq.test(coll)$expected
+coll.PMI <- log2(coll / coll.exp)
+coll.PPMI <- ifelse(coll.PMI < 0, 0, coll.PMI)
+
+
+# get cosine similarity ---------------------------------------------------
+
+# cosine similarity function
+# (adopted from Levshina's [2015] Rling package)
+nr <- nrow(coll)
+m <- matrix(NA, nr, nr)
+
+colnames(m) <- rownames(m) <- rownames(coll)
+
+
+# for(i in 1:nr) {
+#   for(j in 1:nr) {
+#     cos <- crossprod(coll.PPMI[i, ], coll.PPMI[j, ])/sqrt(crossprod(coll.PPMI[i,
+#     ]) * crossprod(coll.PPMI[j, ]))
+#     m[i,j] <- cos
+#     m[j,i] <- cos
+#   }
+#   
+#   print(i)
+# }
+
+# export
+# saveRDS(m, "m.Rds")
+m <- readRDS("../ENCOW_x_is_the_new_y/distsem/m.Rds")
+
+# get distances
+m2 <- 1 - (m / max(m[m<1]))
+
+# backup copy
+m2_matrix <- m2
+
+# as.dist
+m2 <- as.dist(m2)
+
+# as matrix
+m2_matrix <- as.matrix(m2, varnames = c("row", "col"))
+
+```
+
+### Multidimensional Scaling
+
+The resulting matrix is now used as input for multidimensional scaling:
+
+```{r}
+
+# mds
+m3 <- cmdscale(m2)
+m3 <- rownames_to_column(as.data.frame(m3))
+colnames(m3) <- c("Lemma", "dim1", "dim2")
+
+
+
+```
+
+### Partitioning around medioids
+
+For bottom-up identification of (potential) semantic groups, we use Partitioning Around Medioids (PAM).
+
+
+```{r}
+
+# Clusters
+m2_clust <- cluster::pam(m2, 14)
+m2_cluster <- m2_clust$clustering %>% as.data.frame()
+m2_cluster <- rownames_to_column(m2_cluster)
+colnames(m2_cluster) <- c("Lemma", "Cluster")
+
+# join dataframes
+m3 <- left_join(m3, m2_cluster)
+
+```
+
+### Visualization
+
+The MDS and clustering information can be used for visualizing the results. In addition, we add frequency information to the plot:
+
+```{r}
+
+# add frequency information
+m3 <- left_join(m3, l, by = c("Lemma" = "word"))
+m3$freq_x <- sapply(1:nrow(m3), function(i) length(which(d$lemma_head_x == m3$lemma[i])))
+m3$freq_y <- sapply(1:nrow(m3), function(i) length(which(d$lemma_head_y == m3$lemma[i])))
+m3$freq <- m3$freq_x + m3$freq_y
+
+# plot (only Freq >= 10 to keep plot readable)
+
+(p1 <- ggplot(filter(m3, freq >= 10), aes(x = dim1, y = dim2, label = Lemma, col = factor(Cluster))) +
+  geom_text_repel(aes(size = log1p(freq)*2)) + 
+    scale_color_discrete(terrain.colors(14)) +
+  guides(col = F, size = F) + theme_bw() + theme(axis.text = element_text(size = 18)) +
+  theme(axis.title = element_text(size = 18)) +
+  theme(strip.text = element_text(size = 18)) +
+  theme(legend.text = element_text(size = 18)) +
+  theme(legend.title = element_text(size = 18, face = "bold")) +
+  theme(text = element_text(size = 10)) )
+
+```
+
+
+### Cosine distance between x and y slot
+
+Another interesting metric is the cosine distance between the x and the y slot of the individual instances of the construction. 
+
+```{r}
+
+# add Cosine distance to original dataframe
+d$cosine_distance <- NA
+
+for(i in 1:nrow(d)) {
+  if(d$lemma_head_x[i] %in% colnames(m2_matrix) &&
+     d$lemma_head_y[i] %in% rownames(m2_matrix)) {
+    d$cosine_distance[i] <- m2_matrix[which(colnames(m2_matrix) == d$lemma_head_x[i]),
+                                      which(rownames(m2_matrix) == d$lemma_head_y[i])]
+  }
+}
+
+# add column with x and y
+d$lemma_heads <- character(nrow(d))
+d$lemma_heads <- paste(d$lemma_head_x, d$lemma_head_y, sep = "/")
+
+
+d %>% arrange(desc(cosine_distance)) %>% 
+  select(lemma_head_x, lemma_head_y, cosine_distance) %>% na.omit %>% 
+  unique %>% datatable() %>% formatSignif(columns = "cosine_distance", digits=3)
+
+
+```
+
+
+
+
+
+## References
+
+- Schäfer, Roland. 2015. Processing and querying large corpora with the COW14 architecture. In Piotr Bański, Hanno Biber, Evelyn Breiteneder, Marc Kupietz, Harald Lüngen & Andreas Witt (eds.), Challenges in the Management of Large Corpora (CMLC-3), 28–34.
+
+- Schäfer, Roland & Felix Bildhauer. 2012. Building Large Corpora from the Web Using a New Efficient Tool Chain. In Nicoletta Calzolari, Khalid Choukri, Terry Declerck, Mehmet Uğur Doğan, Bente Maegaard, Joseph Mariani, Asuncion Moreno, Jan Odijk & Stelios Piperidis (eds.), Proceedings of LREC 2012, 486–493.
+
+- Levshina, Natalia. 2015. How to do linguistics with R. Data exploration and statistical analysis. Amsterdam, Philadelphia: John Benjamins.
+
+
+
 [Back to top page](https://hartmast.github.io/Attack_of_the_snowclones/)
+
+
+
