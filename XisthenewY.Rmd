@@ -317,10 +317,8 @@ This dataset can now be used as input for distinctive collexeme analysis.
 
 ```{r collexanal}
 
-collex.dist(lx) %>% pretty_df() %>% kbl() %>% 
-   kable_material(c("striped", "hover")) %>% scroll_box(width = "800px", height = "200px")
-collex.dist(ly) %>% pretty_df() %>% kbl() %>%  
-   kable_material(c("striped", "hover")) %>% scroll_box(width = "800px", height = "200px")
+collex.dist(lx) %>% datatable() %>% formatSignif(columns = c("E.CXN1", "E.CXN2", "COLL.STR.LOGL"), digits=3)
+collex.dist(ly) %>% datatable() %>% formatSignif(columns = c("E.CXN1", "E.CXN2", "COLL.STR.LOGL"), digits=3)
 
 
 ```
@@ -449,7 +447,7 @@ m3 <- left_join(m3, m2_cluster)
 
 The MDS and clustering information can be used for visualizing the results. In addition, we add frequency information to the plot:
 
-```{r}
+```{r, warning=FALSE}
 
 # add frequency information
 m3 <- left_join(m3, l, by = c("Lemma" = "word"))
@@ -459,15 +457,22 @@ m3$freq <- m3$freq_x + m3$freq_y
 
 # plot (only Freq >= 10 to keep plot readable)
 
-(p1 <- ggplot(filter(m3, freq >= 10), aes(x = dim1, y = dim2, label = Lemma, col = factor(Cluster))) +
-  geom_text_repel(aes(size = log1p(freq)*2)) + 
+# set a seed so that the location of the datapoints
+# (arranged by ggrepel package) will remain the same
+set.seed(1985)
+
+#plot
+(p1 <- ggplot(filter(m3, freq >= 5), aes(x = dim1, y = dim2, label = Lemma, col = factor(Cluster))) +
+  geom_text_repel(aes(size = log1p(freq)*2), max.overlaps = 15) + 
     scale_color_discrete(terrain.colors(14)) +
-  guides(col = F, size = F) + theme_bw() + theme(axis.text = element_text(size = 18)) +
+  guides(col = "none", size = "none") + theme_bw() + theme(axis.text = element_text(size = 18)) +
   theme(axis.title = element_text(size = 18)) +
   theme(strip.text = element_text(size = 18)) +
   theme(legend.text = element_text(size = 18)) +
   theme(legend.title = element_text(size = 18, face = "bold")) +
   theme(text = element_text(size = 10)) )
+
+# ggsave("distsem01.png", width = 8, height = 8)
 
 ```
 
@@ -501,7 +506,33 @@ d %>% arrange(desc(cosine_distance)) %>%
 
 ```
 
+A different visualization option: Instead of showing clusters by color we show how often the datapoint occurs in the x or y slot.
 
+```{r}
+
+# add relative freqeuency in x and y slot
+m3$rel_x <- m3$freq_x / (m3$freq_x + m3$freq_y)
+m3$rel_y <- m3$freq_y / (m3$freq_x + m3$freq_y)
+m3 <- replace_na(m3, list(rel_x = 0, rel_y = 0))
+
+# set a seed so that the location of the datapoints
+# (arranged by ggrepel package) will remain the same
+set.seed(1985)
+
+#plot
+(p2 <- ggplot(filter(m3, freq >= 5), aes(x = dim1, y = dim2, label = Lemma, col = rel_x)) +
+  geom_text_repel(aes(size = log1p(freq)*2), max.overlaps = 15) + 
+    scale_color_continuous(low = "blue", high = "red") +
+  guides(col = "none", size = "none") + theme_bw() + theme(axis.text = element_text(size = 18)) +
+  theme(axis.title = element_text(size = 18)) +
+  theme(strip.text = element_text(size = 18)) +
+  theme(legend.text = element_text(size = 18)) +
+  theme(legend.title = element_text(size = 18, face = "bold")) +
+  theme(text = element_text(size = 10)) )
+
+# ggsave("distsem02.png", width = 8, height = 8)
+
+```
 
 
 
