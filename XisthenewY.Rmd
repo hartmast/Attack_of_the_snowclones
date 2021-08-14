@@ -1,0 +1,561 @@
+---
+title: "X is the new Y"
+author: "Stefan Hartmann,Tobias Ungerer"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float: true
+    collapsed: false
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Preliminaries
+
+session info:
+
+```{r sessionInfo, message = FALSE, warning = FALSE}
+
+sessionInfo()
+
+```
+
+Install and load packages
+
+```{r pkg, message = FALSE, warning = FALSE, results='hide'}
+
+# install CRAN packages (if not yet installed)
+sapply(c("data.table", "tidyverse", "devtools", "readxl", "kableExtra", "ngram", "networkD3", "igraph", "network", "patchwork", "koRpus", "pbapply", "tidytext", "cluster", "ggrepel", "animation", "kableExtra", "DT"), function(x) if(!is.element(x, installed.packages())) install.packages(x, dependencies = T))
+
+# install non-CRAN packages (if not yet installed)
+if(!is.element("concordances", installed.packages())) {
+devtools::install_github("hartmast/concordances")
+}
+
+# if this doesn't work, check sfla.ch for the package
+if(!is.element("collostructions", installed.packages())) {
+  install.packages("https://sfla.ch/wp-content/uploads/2021/02/collostructions_0.2.0.tar.gz", repos = NULL)
+}
+
+# load packages
+library(readxl)
+library(tidyverse)
+library(ngram)
+library(networkD3)
+library(igraph)
+library(network)
+library(patchwork)
+library(koRpus)
+library(pbapply)
+library(tidytext)
+library(cluster)
+library(ggrepel)
+library(animation)
+library(kableExtra)
+library(DT)
+library(collostructions) # available at sflach.ch
+library(concordances) #available at github.com/hartmast/concordances
+
+
+```
+
+## Helper functions
+
+The following commands define a few helper functions that will be used in the following steps:
+
+```{r hlp}
+
+
+# logarithmize and return 0 instead of Inf if x==0
+log0 <- function(x) {
+  x <- ifelse(x == 0, 0, log(x))
+  return(x)
+}
+
+# function for "prettyfying" df output
+# inspired by https://github.com/rmcelreath/rethinking/blob/d0978c7f8b6329b94efa2014658d750ae12b1fa2/R/utilities.r
+pretty_df <- function(df) {
+  
+  # function for rounding
+  round_this <- function(x, digits = 2) ifelse(x < 1, signif(x, digits = digits), round(x, digits = 2))
+  
+  # function for getting prettyfied dataframe
+  df_pretty <- as.data.frame(lapply(1:length(df), 
+                       function(i) if(!class(df[[i]]) %in% c("character", "factor"))
+                       {
+                         round_this(df[[i]])
+                       } else {
+                         return(df[[i]])
+                       })
+  )
+  
+  # set names to original names
+  colnames(df_pretty) <- colnames(df)
+  return(df_pretty)
+  
+  
+}
+
+# search for entire words
+grepw <- function(pattern, x, perl = F, ...) {
+  grep(paste("^", pattern, "$", sep="", collapse=""), x, perl = perl, ...)
+}
+
+
+
+```
+
+
+## Read in data
+
+```{r readdata}
+
+d <- read_xlsx("ENCOW_x_is_the_new_y_without_false_hits.xlsx")
+
+```
+
+## Data wrangling
+
+We exclude false hits, and we semi-automatically identify the heads of compounds and phrases. (In the data, the x and y elements have been lemmatized manually; wherever an element consists of a multi-word phrase and the head is not the rightmost element, the head has been highlighted via UPPERCASE; the function below uses this markup to identify the heads.)
+
+```{r datawrangling}
+
+
+# exclude false hits ------------------------------------------------------
+
+d <- filter(d, keep == "y")
+
+
+# add wordcount for x and y lemmas ----------------------------------------
+
+d$wordcount_x <- sapply(1:nrow(d), function(i) wordcount(trimws(d$Lemma_x[i])))
+d$wordcount_y <- sapply(1:nrow(d), function(i) wordcount(trimws(d$Lemma_y[i])))
+
+
+
+# get heads of compounds and phrases --------------------------------------
+
+# find instances in which there are words
+# written entirely in uppercase (= our way of
+# marking heads in the data, unless in the case of
+# right-hand heads)
+
+# empty columns for heads
+d$head_x <- NA; d$head_y <- NA
+
+# add wordcount for x and y lemmas 
+d$wordcount_x <- sapply(1:nrow(d), function(i) wordcount(trimws(d$Lemma_x[i])))
+d$wordcount_y <- sapply(1:nrow(d), function(i) wordcount(trimws(d$Lemma_y[i])))
+
+
+# get heads
+for(i in 1:nrow(d)) {
+  
+  if(d$wordcount_x[i]>1) {
+    if(d$pos_x[i]!="NE" & grepl("[A-Z]{2,}", d$Lemma_x[i])) {
+      d$head_x[i] <- tolower(unlist(strsplit(d$Lemma_x[i], " "))[grepl("[A-Z]{2,}", unlist(strsplit(d$Lemma_x[i], " ")))][1])
+    } else{
+      temp <- unlist(strsplit(d$Lemma_x[i], " "))
+      d$head_x[i] <- tolower(temp[length(temp)])
+    }
+  } else {
+    d$head_x[i] <- tolower(d$Lemma_x[i])
+  }
+  
+  
+  if(d$wordcount_y[i]>1) {
+    if(d$pos_y[i]!="NE" & grepl("[A-Z]{2,}", d$Lemma_y[i])) {
+      d$head_y[i] <- tolower(unlist(strsplit(d$Lemma_y[i], " "))[grepl("[A-Z]{2,}", unlist(strsplit(d$Lemma_y[i], " ")))][1])
+    } else{
+      temp <- unlist(strsplit(d$Lemma_y[i], " "))
+      d$head_y[i] <- tolower(temp[length(temp)])
+    }
+  } else {
+    d$head_y[i] <- tolower(d$Lemma_y[i])
+  }
+  
+  
+}
+
+# remove all with "unclear" -----------------------------------------------
+
+# backup copy for subsequent analysis
+d_backup <- d
+
+d <- d[-which(d$concept_x=="unclear" | d$concept_y=="unclear"),]
+
+
+```
+
+## Explore concepts
+
+The data have been annotated for the concepts of the x and y elements. We use heatmaps to explore the co-occurrence of different concpt categories.
+
+```{r cnc, message = FALSE, warning = FALSE}
+
+# network ----------------------------------------------------------------
+d$concept_x <- factor(d$concept_x); d$concept_y <- factor(d$concept_y)
+tbl <- d %>% select(concept_x, concept_y) %>% table %>% as.data.frame
+tbl$number_x <- as.numeric(factor(tbl$concept_x))
+tbl$number_y <- as.numeric(factor(tbl$concept_y))
+
+# add a column in which the frequency is 0 if
+# concept_x == concept_y
+tbl$Freq_noself <- ifelse(tbl$concept_x == tbl$concept_y, NA, tbl$Freq)
+
+# sort factors by frequency in concept_x ----------------------------------
+
+conc_by_freq <- d$concept_x %>% table %>% sort(decreasing = T) %>% rownames()
+tbl$concept_x <- factor(tbl$concept_x, levels = conc_by_freq)
+tbl$concept_y <- factor(tbl$concept_y, levels = conc_by_freq)
+
+# heatmaps ----------------------------------------------------------------
+
+tbl %>% ggplot(aes(x = concept_x, y = concept_y, fill = log0(Freq))) +
+  geom_tile() + scale_fill_gradient(low = "yellow", high = "darkred") +
+  theme(axis.text.x = element_text(angle=45, hjust=.9)) +
+  guides(fill = guide_legend(title = "LogFreq"))
+
+( p1 <- tbl %>% filter(Freq > 0) %>% ggplot(aes(x = concept_x, y = concept_y, fill = log0(Freq), label = Freq)) +
+  geom_tile() + scale_fill_gradient(low = "yellow", high = "darkred") +
+    guides(fill = guide_legend(title = "LogFreq")) + theme_classic() +
+  theme(axis.text.x = element_text(angle=45, hjust=.9)) +
+  geom_text(col = ifelse(log(filter(tbl, Freq > 0)$Freq > 6), "black", "white"), size = 4) +
+    theme(axis.text = element_text(size = 18)) +
+    theme(axis.title = element_text(size = 18)) +
+    theme(strip.text = element_text(size = 18)) +
+    theme(legend.text = element_text(size = 18)) +
+    theme(legend.title = element_text(size = 18, face = "bold")) +
+    theme(text = element_text(size = 18))
+    )
+ 
+
+( p2 <- tbl %>% filter(Freq > 0) %>% 
+  ggplot(aes(x = concept_x, y = concept_y, fill = log0(Freq_noself), label = Freq_noself)) +
+  geom_tile() + scale_fill_gradient(low = "yellow", high = "darkred") +
+  guides(fill = guide_legend(title = "LogFreq")) + theme_classic() +
+  theme(axis.text.x = element_text(angle=45, hjust=.9)) +
+  geom_text(col = ifelse(log(filter(tbl, Freq > 0)$Freq_noself > 6), "black", "white"), size = 4) ) +
+  theme(axis.text = element_text(size = 18)) +
+  theme(axis.title = element_text(size = 18)) +
+  theme(strip.text = element_text(size = 18)) +
+  theme(legend.text = element_text(size = 18)) +
+  theme(legend.title = element_text(size = 18, face = "bold")) +
+  theme(text = element_text(size = 18))
+  
+
+
+
+```
+
+## Collostructional analysis
+
+For performing the collostructional analysis, we draw on a manual lemmatization of the items in the x and y slot. We first read in the lemmatization table.
+
+```{r lmtz1, message = FALSE, warning = FALSE, eval = FALSE}
+# export heads for lemmatization ------------------------------------------
+c(d %>% filter(!(concept_x=="person" & pos_x=="NE")) %>% select(head_x),
+  d %>% filter(!(concept_y=="person" & pos_y=="NE")) %>% select(head_y)) %>%
+  unlist %>% unique %>% as.data.frame 
+#%>% write_excel_csv("lemmatization.csv")
+
+```
+
+```{r lmtz2, message = FALSE, warning = FALSE}
+
+# re-import lemmatized lists ----------------------------------------------
+
+l <- read_csv("lemmatization.csv")
+
+```
+
+Now we generate frequency lists with the help of the original dataframe and the lemmatization table.
+
+```{r frqs, message = FALSE, warning = FALSE}
+
+# get frequency of x & y lemmas -----------------------------------------------
+
+lx <- left_join(tibble(word = d$head_x),
+          l) %>% na.omit %>% select(lemma) %>% table %>% as.data.frame(stringsAsFactors = F) %>% setNames(c("lemma", "Freq"))
+
+
+ly <- left_join(tibble(word = d$head_y),
+                l) %>% na.omit %>% select(lemma) %>% table %>% as.data.frame(stringsAsFactors = F) %>% setNames(c("lemma", "Freq"))
+
+
+```
+
+We additionally read in the ENCOW frequency list (available at https://www.webcorpora.org/opendata/, only relevant subset used here) to get the corpus frequencies of the lemmas in question.
+
+
+```{r encow}
+
+encow <- read_csv("x_is_the_new_y_encow_frequencies.csv")
+
+```
+
+Using this dataset, we add the corpus frequencies to the frequency tables created before.
+
+```{r frqs2}
+
+# add frequencies -----------------------------------------------
+lx$Freq_encow <- sapply(1:nrow(lx), function(i) sum(encow[grepw(lx$lemma[i], encow$word),]$Freq_encow))
+ly$Freq_encow <- sapply(1:nrow(ly), function(i) sum(encow[grepw(ly$lemma[i], encow$word),]$Freq_encow))
+
+
+```
+
+Given that we draw on a manually lemmatized dataset, while the ENCOW frequency table is based on automatically tagged data, the match is not perfect. Thus, there are a few lemmas that are not attested at all in the ENCOW lemma list. As this only affects a few lemmas, they are discarded in the next step.
+
+```{r discardzeros}
+
+# omit all that are not attested in ENCOW
+lx <- filter(lx, Freq_encow > 0)
+ly <- filter(ly, Freq_encow > 0)
+
+```
+
+
+This dataset can now be used as input for distinctive collexeme analysis.
+
+```{r collexanal}
+
+collex.dist(lx) %>% datatable() %>% formatSignif(columns = c("E.CXN1", "E.CXN2", "COLL.STR.LOGL"), digits=3)
+collex.dist(ly) %>% datatable() %>% formatSignif(columns = c("E.CXN1", "E.CXN2", "COLL.STR.LOGL"), digits=3)
+
+
+```
+
+
+## Semantic vector-space analysis
+
+To assess the semantics of the slot fillers in more detail, we use a semantic vector-space approach. To this end, we first add a column with the manually corrected lemmas to the dataframe.
+
+```{r}
+
+# add lemmatization to head -----------------------------------------------
+
+d <- left_join(d, rename(l, c(lemma_head_x = lemma)), by = c("head_x" = "word"), all.x = T)
+d <- left_join(d, rename(l, c(lemma_head_y = lemma)), by = c("head_y" = "word"), all.x = T)
+
+# fill NA head columns
+d$lemma_head_x <- ifelse(is.na(d$lemma_head_x), d$head_x, d$lemma_head_x)
+d$lemma_head_y <- ifelse(is.na(d$lemma_head_y), d$head_y, d$lemma_head_y)
+
+
+```
+
+A list of collocates for the lexical items in the x and y slots was compiled using the downloadable portion of the ENCOW corpus.
+
+```{r}
+
+# collocates
+coll <- read_csv("../ENCOW_x_is_the_new_y/distsem/collocates.csv")
+
+```
+
+We use the collocates to compute Positive Pairwise Mutual Information (PPMI), which in turn allows us to calculate the Cosine distance following Levshina (2015).
+
+```{r}
+
+# "collocate" column to rownames:
+coll <- as.data.frame(coll)
+rownames(coll) <- coll$collocate
+coll <- coll[ , -1] # remove first column
+coll <- t(coll) # switch rows and columns
+
+
+# get PPMI ----
+
+# get expected frequencies
+coll <- as.matrix(coll)
+coll.exp <- chisq.test(coll)$expected
+coll.PMI <- log2(coll / coll.exp)
+coll.PPMI <- ifelse(coll.PMI < 0, 0, coll.PMI)
+
+
+# get cosine similarity ---------------------------------------------------
+
+# cosine similarity function
+# (adopted from Levshina's [2015] Rling package)
+nr <- nrow(coll)
+m <- matrix(NA, nr, nr)
+
+colnames(m) <- rownames(m) <- rownames(coll)
+
+
+# for(i in 1:nr) {
+#   for(j in 1:nr) {
+#     cos <- crossprod(coll.PPMI[i, ], coll.PPMI[j, ])/sqrt(crossprod(coll.PPMI[i,
+#     ]) * crossprod(coll.PPMI[j, ]))
+#     m[i,j] <- cos
+#     m[j,i] <- cos
+#   }
+#   
+#   print(i)
+# }
+
+# export
+# saveRDS(m, "m.Rds")
+m <- readRDS("../ENCOW_x_is_the_new_y/distsem/m.Rds")
+
+# get distances
+m2 <- 1 - (m / max(m[m<1]))
+
+# backup copy
+m2_matrix <- m2
+
+# as.dist
+m2 <- as.dist(m2)
+
+# as matrix
+m2_matrix <- as.matrix(m2, varnames = c("row", "col"))
+
+```
+
+### Multidimensional Scaling
+
+The resulting matrix is now used as input for multidimensional scaling:
+
+```{r}
+
+# mds
+m3 <- cmdscale(m2)
+m3 <- rownames_to_column(as.data.frame(m3))
+colnames(m3) <- c("Lemma", "dim1", "dim2")
+
+
+
+```
+
+### Partitioning around medioids
+
+For bottom-up identification of (potential) semantic groups, we use Partitioning Around Medioids (PAM).
+
+
+```{r}
+
+# Clusters
+m2_clust <- cluster::pam(m2, 14)
+m2_cluster <- m2_clust$clustering %>% as.data.frame()
+m2_cluster <- rownames_to_column(m2_cluster)
+colnames(m2_cluster) <- c("Lemma", "Cluster")
+
+# join dataframes
+m3 <- left_join(m3, m2_cluster)
+
+```
+
+### Visualization
+
+The MDS and clustering information can be used for visualizing the results. In addition, we add frequency information to the plot:
+
+```{r, warning=FALSE}
+
+# add frequency information
+m3 <- left_join(m3, l, by = c("Lemma" = "word"))
+m3$freq_x <- sapply(1:nrow(m3), function(i) length(which(d$lemma_head_x == m3$lemma[i])))
+m3$freq_y <- sapply(1:nrow(m3), function(i) length(which(d$lemma_head_y == m3$lemma[i])))
+m3$freq <- m3$freq_x + m3$freq_y
+
+# plot (only Freq >= 10 to keep plot readable)
+
+# set a seed so that the location of the datapoints
+# (arranged by ggrepel package) will remain the same
+set.seed(1985)
+
+#plot
+(p1 <- ggplot(filter(m3, freq >= 5), aes(x = dim1, y = dim2, label = Lemma, col = factor(Cluster))) +
+  geom_text_repel(aes(size = log1p(freq)*2), max.overlaps = 15) + 
+    scale_color_discrete(terrain.colors(14)) +
+  guides(col = "none", size = "none") + theme_bw() + theme(axis.text = element_text(size = 18)) +
+  theme(axis.title = element_text(size = 18)) +
+  theme(strip.text = element_text(size = 18)) +
+  theme(legend.text = element_text(size = 18)) +
+  theme(legend.title = element_text(size = 18, face = "bold")) +
+  theme(text = element_text(size = 10)) )
+
+# ggsave("distsem01.png", width = 8, height = 8)
+
+```
+
+
+### Cosine distance between x and y slot
+
+Another interesting metric is the cosine distance between the x and the y slot of the individual instances of the construction. 
+
+```{r}
+
+# add Cosine distance to original dataframe
+d$cosine_distance <- NA
+
+for(i in 1:nrow(d)) {
+  if(d$lemma_head_x[i] %in% colnames(m2_matrix) &&
+     d$lemma_head_y[i] %in% rownames(m2_matrix)) {
+    d$cosine_distance[i] <- m2_matrix[which(colnames(m2_matrix) == d$lemma_head_x[i]),
+                                      which(rownames(m2_matrix) == d$lemma_head_y[i])]
+  }
+}
+
+# add column with x and y
+d$lemma_heads <- character(nrow(d))
+d$lemma_heads <- paste(d$lemma_head_x, d$lemma_head_y, sep = "/")
+
+
+d %>% arrange(desc(cosine_distance)) %>% 
+  select(lemma_head_x, lemma_head_y, cosine_distance) %>% na.omit %>% 
+  unique %>% datatable() %>% formatSignif(columns = "cosine_distance", digits=3)
+
+
+```
+
+A different visualization option: Instead of showing clusters by color we show how often the datapoint occurs in the x or y slot.
+
+```{r}
+
+# add relative freqeuency in x and y slot
+m3$rel_x <- m3$freq_x / (m3$freq_x + m3$freq_y)
+m3$rel_y <- m3$freq_y / (m3$freq_x + m3$freq_y)
+m3 <- replace_na(m3, list(rel_x = 0, rel_y = 0))
+
+# set a seed so that the location of the datapoints
+# (arranged by ggrepel package) will remain the same
+set.seed(1985)
+
+#plot
+(p2 <- ggplot(filter(m3, freq >= 5), aes(x = dim1, y = dim2, label = Lemma, col = rel_x)) +
+  geom_text_repel(aes(size = log1p(freq)*2), max.overlaps = 15) + 
+    scale_color_continuous(low = "blue", high = "red") +
+  guides(col = "none", size = "none") + theme_bw() + theme(axis.text = element_text(size = 18)) +
+  theme(axis.title = element_text(size = 18)) +
+  theme(strip.text = element_text(size = 18)) +
+  theme(legend.text = element_text(size = 18)) +
+  theme(legend.title = element_text(size = 18, face = "bold")) +
+  theme(text = element_text(size = 10)) )
+
+# ggsave("distsem02.png", width = 8, height = 8)
+
+```
+
+
+
+## References
+
+- Schäfer, Roland. 2015. Processing and querying large corpora with the COW14 architecture. In Piotr Bański, Hanno Biber, Evelyn Breiteneder, Marc Kupietz, Harald Lüngen & Andreas Witt (eds.), Challenges in the Management of Large Corpora (CMLC-3), 28–34.
+
+- Schäfer, Roland & Felix Bildhauer. 2012. Building Large Corpora from the Web Using a New Efficient Tool Chain. In Nicoletta Calzolari, Khalid Choukri, Terry Declerck, Mehmet Uğur Doğan, Bente Maegaard, Joseph Mariani, Asuncion Moreno, Jan Odijk & Stelios Piperidis (eds.), Proceedings of LREC 2012, 486–493.
+
+- Levshina, Natalia. 2015. How to do linguistics with R. Data exploration and statistical analysis. Amsterdam, Philadelphia: John Benjamins.
+
+
+
+[Back to top page](https://hartmast.github.io/Attack_of_the_snowclones/)
+
+
+

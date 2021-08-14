@@ -1,0 +1,176 @@
+---
+title: "The mother of all X"
+author: "Stefan Hartmann,Tobias Ungerer"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float: true
+    collapsed: false
+    df_print: paged
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+assignInNamespace("cedta.pkgEvalsUserCode", c(data.table:::cedta.pkgEvalsUserCode,"rtvs"), "data.table")
+```
+
+## Preliminaries
+
+session info:
+
+```{r sessionInfo, message = FALSE, warning = FALSE}
+
+sessionInfo()
+
+```
+
+Install and load packages
+
+```{r packages, warning = FALSE, message = FALSE}
+
+# install CRAN packages (if not yet installed)
+sapply(c("data.table", "tidyverse", "devtools", "readxl", "kableExtra", "ngram", "networkD3", "igraph", "network", "patchwork", "koRpus", "pbapply", "tidytext", "cluster", "ggrepel", "animation"), function(x) if(!is.element(x, installed.packages())) install.packages(x, dependencies = T))
+
+# install non-CRAN packages (if not yet installed)
+if(!is.element("concordances", installed.packages())) {
+devtools::install_github("hartmast/concordances")
+}
+
+# if this doesn't work, check sfla.ch for the package
+if(!is.element("collostructions", installed.packages())) {
+  install.packages("https://sfla.ch/wp-content/uploads/2021/02/collostructions_0.2.0.tar.gz", repos = NULL)
+}
+
+
+# install "concordances" if not yet installed
+if(!is.element("concordances", installed.packages())) {
+  devtools::install_github("hartmast/concordances", ref = "f4ca785
+")
+}
+
+# load "concordances"
+library(concordances)
+library(tidyverse)
+library(readxl)
+library(data.table)
+library(kableExtra)
+library(collostructions)
+
+```
+
+
+## Data retrieval
+
+The data were retrieved from the NoSketchEngine instance of the COW corpora (https://www.webcorpora.org/) on Sept 27, 2019, using the ENCOW16B "World Englishes" corpus. The query was:
+
+```{r queries, eval=FALSE, message = FALSE, warning = FALSE}
+
+[word="[Tt]he"] "mother" "of" "all" []
+
+```
+
+The data were exported to the XML file mother_of_all.xml, which is imported in the subsequent step.
+
+```{r import, message = FALSE, warning = FALSE}
+
+d <- getNSE("mother_of_all.xml", xml = TRUE, context_tags = FALSE, verbose = FALSE)
+
+```
+
+
+## Annotation
+
+The concordance is exported for annotation, the annotated file is then read in.
+
+```{r anno, message = FALSE, warning = FALSE}
+
+# write_excel_csv(d, "mother_of_all_ENCOW.csv")
+d <- read_xlsx("mother_of_all_ENCOW.xlsx")
+
+```
+
+## Data wrangling
+
+We only keep the instances manually tagged as keep == "y", excluding false hits and doubtful cases.
+
+```{r dw}
+
+d <- filter(d, keep == "y")
+
+```
+
+For performing a collostructional analysis, we have to know how often a lemma attested in the open slot of the *mother of all* construction occurs in the ENCOW corpus as a whole. For this purpose, we read in the ENCOW word list (available at [webcorpora.org](https://www.webcorpora.org/opendata/frequencies/english/)).
+
+```{r wordlist, message = FALSE, cache = TRUE}
+
+encow <- fread("/Volumes/My Passport/ENCOW word lists/encow16ax.lp.tsv",
+               header = F)
+# 
+# head(encow)
+# 
+# # only nouns
+# encow <- encow[V2 %in% c("NN", "NE")]
+# 
+# head(encow)
+
+```
+
+
+This is a huge database, but we only need nouns and adjectives, so we drop the rest in order to speed up the next calculations. Also, we add more self-explanatory column names:
+
+```{r wlwrangling, cache = TRUE}
+
+# only nouns
+encow <- encow[V2 %in% c("NN", "NE")]
+colnames(encow) <- c("Lemma", "POS", "Freq")
+
+# if something is attested both as NN and
+# NE, sum them up
+encow <- encow[, sum(Freq), by = Lemma]
+setnames(encow, old = "V1", new = "Freq")
+
+```
+
+We compile a frequency table from our *mother of all* concordance `d` and combine it with the corpus frequencies in the `encow` table.
+
+```{r joinfreqs}
+
+# get frequencies
+d_tbl <- d %>% select(lemma) %>% table %>% sort(decreasing = T) %>% 
+  as.data.frame(stringsAsFactors = F)
+colnames(d_tbl) <- c("Lemma", "Freq_in_cxn")
+
+# join tables
+d_tbl <- left_join(d_tbl, encow, by = "Lemma")
+
+```
+
+These data are not without noise - ENCOW's lemmatization is of course not perfect, but we can still expect that the relationships between construction frequencies and corpus frequencies of the words in question are roughly representative of their "actual" relationship in everyday use, at least in the text types represented in the corpus. However, given that the lemmatization is not perfect, there can be cases where the corpus frequency is lower than the construction frequency. This is of course not possible - if a word occurs, say, three times in a specific construction in corpus, its total frequency in the corpus cannot be lower than three! In one instance, however, this is the case in our data. The reason for this is that our concordance was lemmatized manually while for ENCOW, we rely on the automatic lemmatization. As this only affects one single attestation, we just exclude it.
+
+```{r excludethis}
+
+# omit one case where corpus frequency is
+# smaller than cxn frequency
+d_tbl <- subset(d_tbl, d_tbl[,2] <= d_tbl[,3])
+
+```
+
+Next, we perform a collexeme analysis using Flach's `collostructions` package.
+
+```{r collex}
+
+# perform collexeme analysis
+collex(d_tbl, corpsize = sum(encow$Freq)) %>% kbl() %>%  
+   kable_material(c("striped", "hover")) %>% scroll_box(width = "800px", height = "200px")
+
+
+```
+
+
+
+[Back to top page](https://hartmast.github.io/Attack_of_the_snowclones/)
