@@ -19,7 +19,7 @@ sessionInfo()
 
 Install and load packages
 
-```{r pkg, message = FALSE, warning = FALSE}
+```{r pkg, message = FALSE, warning = FALSE, results='hide'}
 
 # install CRAN packages (if not yet installed)
 sapply(c("data.table", "tidyverse", "devtools", "readxl", "kableExtra", "ngram", "networkD3", "igraph", "network", "patchwork", "koRpus", "pbapply", "tidytext", "cluster", "ggrepel", "animation", "kableExtra", "DT"), function(x) if(!is.element(x, installed.packages())) install.packages(x, dependencies = T))
