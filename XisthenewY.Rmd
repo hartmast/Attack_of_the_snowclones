@@ -547,6 +547,8 @@ set.seed(1985)
 
 ## References
 
+- Flach, Susanne. 2017. collostructions: An R Implementation for the Family of Collostructional Methods. www.bit.ly/sflach.
+
 - Schäfer, Roland. 2015. Processing and querying large corpora with the COW14 architecture. In Piotr Bański, Hanno Biber, Evelyn Breiteneder, Marc Kupietz, Harald Lüngen & Andreas Witt (eds.), Challenges in the Management of Large Corpora (CMLC-3), 28–34.
 
 - Schäfer, Roland & Felix Bildhauer. 2012. Building Large Corpora from the Web Using a New Efficient Tool Chain. In Nicoletta Calzolari, Khalid Choukri, Terry Declerck, Mehmet Uğur Doğan, Bente Maegaard, Joseph Mariani, Asuncion Moreno, Jan Odijk & Stelios Piperidis (eds.), Proceedings of LREC 2012, 486–493.
