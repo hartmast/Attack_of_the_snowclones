@@ -1,22 +1,12 @@
 ---
 title: "The mother of all X"
-author: "Stefan Hartmann,Tobias Ungerer"
-date: "`r format(Sys.time(), '%d %B, %Y')`"
-output: 
-  html_document:
-    theme: flatly
-    highlight: tango
-    toc: true
-    toc_float: true
-    collapsed: false
-    df_print: paged
+author: "Stefan Hartmann"
+date: "27/09/2019"
+output: html_document
 ---
-
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-
-assignInNamespace("cedta.pkgEvalsUserCode", c(data.table:::cedta.pkgEvalsUserCode,"rtvs"), "data.table")
 ```
 
 ## Preliminaries
@@ -104,26 +94,45 @@ d <- filter(d, keep == "y")
 
 ```
 
-For performing a collostructional analysis, we have to know how often a lemma attested in the open slot of the *mother of all* construction occurs in the ENCOW corpus as a whole. For this purpose, we read in the ENCOW word list (available at [webcorpora.org](https://www.webcorpora.org/opendata/frequencies/english/)).
 
-```{r wordlist, message = FALSE, cache = TRUE}
+## Types, tokens, hapax legomena
 
-encow <- fread("/Volumes/My Passport/ENCOW word lists/encow16ax.lp.tsv",
-               header = F)
-# 
-# head(encow)
-# 
-# # only nouns
-# encow <- encow[V2 %in% c("NN", "NE")]
-# 
-# head(encow)
+```{r}
+
+# frequency table
+d_tbl <- d %>% select(lemma) %>% table %>% as_tibble() %>% rename(c(lemma = ".", Freq = "n")) %>% arrange(desc(Freq))
+
+# overview table
+
+tibble(
+  # types
+  Types = nrow(d_tbl),
+
+  # tokens
+  Tokens = sum(d_tbl$Freq),
+
+# hapax legomena
+  "Hapax Legomena" = length(which(d_tbl$Freq==1))
+) %>% kbl() %>% kable_material(c("striped", "hover"))
+
+
 
 ```
 
+## Collostructional analysis
+
+For performing a collostructional analysis, we have to know how often a lemma attested in the open slot of the *mother of all* construction occurs in the ENCOW corpus as a whole. For this purpose, we read in the ENCOW word list (available at [webcorpora.org](https://www.webcorpora.org/opendata/frequencies/english/)).
+
+```{r wordlist, eval = FALSE}
+
+encow <- fread("/Volumes/My Passport/ENCOW word lists/encow16ax.lp.tsv",
+               header = F)
+
+```
 
 This is a huge database, but we only need nouns and adjectives, so we drop the rest in order to speed up the next calculations. Also, we add more self-explanatory column names:
 
-```{r wlwrangling, cache = TRUE}
+```{r wlwrangling, eval = FALSE}
 
 # only nouns
 encow <- encow[V2 %in% c("NN", "NE")]
@@ -138,7 +147,7 @@ setnames(encow, old = "V1", new = "Freq")
 
 We compile a frequency table from our *mother of all* concordance `d` and combine it with the corpus frequencies in the `encow` table.
 
-```{r joinfreqs}
+```{r joinfreqs, eval = FALSE}
 
 # get frequencies
 d_tbl <- d %>% select(lemma) %>% table %>% sort(decreasing = T) %>% 
@@ -147,6 +156,20 @@ colnames(d_tbl) <- c("Lemma", "Freq_in_cxn")
 
 # join tables
 d_tbl <- left_join(d_tbl, encow, by = "Lemma")
+
+```
+
+```{r include = FALSE, eval = FALSE}
+
+# export
+write_excel_csv(d_tbl, "mother_of_all_with_encow_frequencies.csv")
+
+```
+
+```{r include = FALSE}
+
+# re-import
+d_tbl <- read_csv("mother_of_all_with_encow_frequencies.csv")
 
 ```
 
@@ -164,8 +187,10 @@ Next, we perform a collexeme analysis using Flach's `collostructions` package.
 
 ```{r collex}
 
+# sum(encow$Freq): 1312973874
+
 # perform collexeme analysis
-collex(d_tbl, corpsize = sum(encow$Freq)) %>% kbl() %>%  
+collex(d_tbl, corpsize = 1312973874) %>% kbl() %>%  
    kable_material(c("striped", "hover")) %>% scroll_box(width = "800px", height = "200px")
 
 
