@@ -572,7 +572,18 @@ set.seed(1985)
 
 ```
 
+Visualizing semantic distance between X and Y
 
+```{r}
+
+distances <- d %>% arrange(desc(cosine_distance)) %>% 
+  select(lemma_head_x, lemma_head_y, cosine_distance) %>% na.omit %>% 
+  unique
+
+distances %>% ggplot(aes(x = cosine_distance)) + geom_histogram(binwidth = 0.03, col = "black", fill = "grey") + theme_classic() + ylab("Count") + xlab("Cosine distance")
+
+
+```
 
 ## References
 
