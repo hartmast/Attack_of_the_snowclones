@@ -1,12 +1,22 @@
 ---
 title: "The mother of all X"
-author: "Stefan Hartmann"
-date: "27/09/2019"
-output: html_document
+author: "Stefan Hartmann,Tobias Ungerer"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float: true
+    collapsed: false
+    df_print: paged
 ---
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
+assignInNamespace("cedta.pkgEvalsUserCode", c(data.table:::cedta.pkgEvalsUserCode,"rtvs"), "data.table")
 ```
 
 ## Preliminaries
@@ -123,16 +133,24 @@ tibble(
 
 For performing a collostructional analysis, we have to know how often a lemma attested in the open slot of the *mother of all* construction occurs in the ENCOW corpus as a whole. For this purpose, we read in the ENCOW word list (available at [webcorpora.org](https://www.webcorpora.org/opendata/frequencies/english/)).
 
-```{r wordlist, eval = FALSE}
+```{r wordlist, message = FALSE, cache = TRUE, eval = FALSE}
 
 encow <- fread("/Volumes/My Passport/ENCOW word lists/encow16ax.lp.tsv",
                header = F)
+# 
+# head(encow)
+# 
+# # only nouns
+# encow <- encow[V2 %in% c("NN", "NE")]
+# 
+# head(encow)
 
 ```
 
+
 This is a huge database, but we only need nouns and adjectives, so we drop the rest in order to speed up the next calculations. Also, we add more self-explanatory column names:
 
-```{r wlwrangling, eval = FALSE}
+```{r wlwrangling, cache = TRUE, eval = FALSE}
 
 # only nouns
 encow <- encow[V2 %in% c("NN", "NE")]
