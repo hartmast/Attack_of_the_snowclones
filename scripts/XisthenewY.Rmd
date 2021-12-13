@@ -1,0 +1,740 @@
+---
+title: "X is the new Y"
+author: "Authors"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float: true
+    collapsed: false
+    df_print: paged
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Preliminaries
+
+session info:
+
+```{r sessionInfo, message = FALSE, warning = FALSE}
+
+sessionInfo()
+
+```
+
+Install and load packages
+
+```{r pkg, message = FALSE, warning = FALSE, results='hide'}
+
+# install CRAN packages (if not yet installed)
+sapply(c("data.table", "tidyverse", "devtools", "readxl", "kableExtra", "ngram", "networkD3", "igraph", "network", "patchwork", "koRpus", "pbapply", "tidytext", "cluster", "ggrepel", "animation", "kableExtra", "DT"), function(x) if(!is.element(x, installed.packages())) install.packages(x, dependencies = T))
+
+# install non-CRAN packages (if not yet installed)
+if(!is.element("concordances", installed.packages())) {
+devtools::install_github("hartmast/concordances")
+}
+
+# install non-CRAN packages (if not yet installed)
+if(!is.element("wizard", installed.packages())) {
+devtools::install_github("hartmast/wizard")
+}
+
+# if this doesn't work, check sfla.ch for the package
+if(!is.element("collostructions", installed.packages())) {
+  install.packages("https://sfla.ch/wp-content/uploads/2021/02/collostructions_0.2.0.tar.gz", repos = NULL)
+}
+
+# load packages
+library(readxl)
+library(tidyverse)
+library(ngram)
+library(networkD3)
+library(igraph)
+library(network)
+library(patchwork)
+library(koRpus)
+library(pbapply)
+library(tidytext)
+library(cluster)
+library(ggrepel)
+library(animation)
+library(kableExtra)
+library(DT)
+library(collostructions) # available at sflach.ch
+library(concordances) #available at github.com/hartmast/concordances
+library(wizard) # available at github.com/hartmast/wizard
+
+```
+
+# ENCOW
+
+## Helper functions
+
+The following commands define a few helper functions that will be used in the following steps:
+
+```{r hlp}
+
+
+# logarithmize and return 0 instead of Inf if x==0
+log0 <- function(x) {
+  x <- ifelse(x == 0, 0, log(x))
+  return(x)
+}
+
+# function for "prettyfying" df output
+# inspired by https://github.com/rmcelreath/rethinking/blob/d0978c7f8b6329b94efa2014658d750ae12b1fa2/R/utilities.r
+pretty_df <- function(df) {
+  
+  # function for rounding
+  round_this <- function(x, digits = 2) ifelse(x < 1, signif(x, digits = digits), round(x, digits = 2))
+  
+  # function for getting prettyfied dataframe
+  df_pretty <- as.data.frame(lapply(1:length(df), 
+                       function(i) if(!class(df[[i]]) %in% c("character", "factor"))
+                       {
+                         round_this(df[[i]])
+                       } else {
+                         return(df[[i]])
+                       })
+  )
+  
+  # set names to original names
+  colnames(df_pretty) <- colnames(df)
+  return(df_pretty)
+  
+  
+}
+
+# search for entire words
+grepw <- function(pattern, x, perl = F, ...) {
+  grep(paste("^", pattern, "$", sep="", collapse=""), x, perl = perl, ...)
+}
+
+
+
+```
+
+
+## Read in data
+
+```{r readdata}
+
+d <- read_xlsx("../data/ENCOW_x_is_the_new_y_without_false_hits.xlsx")
+
+```
+
+## Data wrangling
+
+We exclude false hits, and we semi-automatically identify the heads of compounds and phrases. (In the data, the x and y elements have been lemmatized manually; wherever an element consists of a multi-word phrase and the head is not the rightmost element, the head has been highlighted via UPPERCASE; the function below uses this markup to identify the heads.)
+
+```{r datawrangling}
+
+
+# exclude false hits ------------------------------------------------------
+
+d <- filter(d, keep == "y")
+
+
+# add wordcount for x and y lemmas ----------------------------------------
+
+d$wordcount_x <- sapply(1:nrow(d), function(i) wordcount(trimws(d$Lemma_x[i])))
+d$wordcount_y <- sapply(1:nrow(d), function(i) wordcount(trimws(d$Lemma_y[i])))
+
+
+
+# get heads of compounds and phrases --------------------------------------
+
+# find instances in which there are words
+# written entirely in uppercase (= our way of
+# marking heads in the data, unless in the case of
+# right-hand heads)
+
+# empty columns for heads
+d$head_x <- NA; d$head_y <- NA
+
+# add wordcount for x and y lemmas 
+d$wordcount_x <- sapply(1:nrow(d), function(i) wordcount(trimws(d$Lemma_x[i])))
+d$wordcount_y <- sapply(1:nrow(d), function(i) wordcount(trimws(d$Lemma_y[i])))
+
+
+# get heads
+for(i in 1:nrow(d)) {
+  
+  if(d$wordcount_x[i]>1) {
+    if(d$pos_x[i]!="NE" & grepl("[A-Z]{2,}", d$Lemma_x[i])) {
+      d$head_x[i] <- tolower(unlist(strsplit(d$Lemma_x[i], " "))[grepl("[A-Z]{2,}", unlist(strsplit(d$Lemma_x[i], " ")))][1])
+    } else{
+      temp <- unlist(strsplit(d$Lemma_x[i], " "))
+      d$head_x[i] <- tolower(temp[length(temp)])
+    }
+  } else {
+    d$head_x[i] <- tolower(d$Lemma_x[i])
+  }
+  
+  
+  if(d$wordcount_y[i]>1) {
+    if(d$pos_y[i]!="NE" & grepl("[A-Z]{2,}", d$Lemma_y[i])) {
+      d$head_y[i] <- tolower(unlist(strsplit(d$Lemma_y[i], " "))[grepl("[A-Z]{2,}", unlist(strsplit(d$Lemma_y[i], " ")))][1])
+    } else{
+      temp <- unlist(strsplit(d$Lemma_y[i], " "))
+      d$head_y[i] <- tolower(temp[length(temp)])
+    }
+  } else {
+    d$head_y[i] <- tolower(d$Lemma_y[i])
+  }
+  
+  
+}
+
+# remove all with "unclear" -----------------------------------------------
+
+# backup copy for subsequent analysis
+d_backup <- d
+
+d <- d[-which(d$concept_x=="unclear" | d$concept_y=="unclear"),]
+
+
+```
+
+## Types, tokens, hapax legomena
+
+```{r}
+
+# get hapaxes:
+
+tibble(
+  types_x = length(unique(d$head_x)),
+  types_y = length(unique(d$head_y)),
+  types   = length(unique(paste0(d$head_x, "/", d$head_y))),
+  hapaxes_x = table(d$head_x) %>% as_tibble(.name_repair = "unique") %>% setNames(c("lemma_x", "n")) %>% filter(n == 1) %>% nrow(),
+hapaxes_y = table(d$head_y) %>% as_tibble(.name_repair = "unique") %>% setNames(c("lemma_y", "n")) %>% filter(n == 1) %>% nrow(),
+hapaxes_all = paste0(d$head_x, "/", d$head_y) %>% table %>% as_tibble() %>% setNames(c("lemma", "n")) %>% filter(n == 1) %>% nrow,
+  tokens = nrow(d)
+) %>% kbl()
+
+```
+
+## Explore concepts
+
+The data have been annotated for the concepts of the x and y elements. We use heatmaps to explore the co-occurrence of different concpt categories.
+
+```{r cnc, message = FALSE, warning = FALSE}
+
+# network ----------------------------------------------------------------
+d$concept_x <- factor(d$concept_x); d$concept_y <- factor(d$concept_y)
+tbl <- d %>% select(concept_x, concept_y) %>% table %>% as.data.frame
+tbl$number_x <- as.numeric(factor(tbl$concept_x))
+tbl$number_y <- as.numeric(factor(tbl$concept_y))
+
+# add a column in which the frequency is 0 if
+# concept_x == concept_y
+tbl$Freq_noself <- ifelse(tbl$concept_x == tbl$concept_y, NA, tbl$Freq)
+
+# sort factors by frequency in concept_x ----------------------------------
+
+conc_by_freq <- d$concept_x %>% table %>% sort(decreasing = T) %>% rownames()
+tbl$concept_x <- factor(tbl$concept_x, levels = conc_by_freq)
+tbl$concept_y <- factor(tbl$concept_y, levels = conc_by_freq)
+
+# heatmaps ----------------------------------------------------------------
+
+tbl %>% ggplot(aes(x = concept_x, y = concept_y, fill = log0(Freq))) +
+  geom_tile() + scale_fill_gradient(low = "yellow", high = "darkred") +
+  theme(axis.text.x = element_text(angle=45, hjust=.9)) +
+  guides(fill = guide_legend(title = "LogFreq"))
+
+( p1 <- tbl %>% filter(Freq > 0) %>% ggplot(aes(x = concept_x, y = concept_y, fill = log0(Freq), label = Freq)) +
+  geom_tile() + scale_fill_gradient(low = "yellow", high = "darkred") +
+    guides(fill = guide_legend(title = "LogFreq")) + theme_classic() +
+  theme(axis.text.x = element_text(angle=45, hjust=.9)) +
+  geom_text(col = ifelse(log(filter(tbl, Freq > 0)$Freq > 6), "black", "white"), size = 4) +
+    theme(axis.text = element_text(size = 18)) +
+    theme(axis.title = element_text(size = 18)) +
+    theme(strip.text = element_text(size = 18)) +
+    theme(legend.text = element_text(size = 18)) +
+    theme(legend.title = element_text(size = 18, face = "bold")) +
+    theme(text = element_text(size = 18))
+    )
+ 
+
+( p2 <- tbl %>% filter(Freq > 0) %>% 
+  ggplot(aes(x = concept_x, y = concept_y, fill = log0(Freq_noself), label = Freq_noself)) +
+  geom_tile() + scale_fill_gradient(low = "yellow", high = "darkred") +
+  guides(fill = guide_legend(title = "LogFreq")) + theme_classic() +
+  theme(axis.text.x = element_text(angle=45, hjust=.9)) +
+  geom_text(col = ifelse(log(filter(tbl, Freq > 0)$Freq_noself > 6), "black", "white"), size = 4) ) +
+  theme(axis.text = element_text(size = 18)) +
+  theme(axis.title = element_text(size = 18)) +
+  theme(strip.text = element_text(size = 18)) +
+  theme(legend.text = element_text(size = 18)) +
+  theme(legend.title = element_text(size = 18, face = "bold")) +
+  theme(text = element_text(size = 18))
+  
+
+
+
+```
+
+## Collostructional analysis
+
+For performing the collostructional analysis, we draw on a manual lemmatization of the items in the x and y slot. We first read in the lemmatization table.
+
+```{r lmtz1, message = FALSE, warning = FALSE, eval = FALSE}
+# export heads for lemmatization ------------------------------------------
+c(d %>% filter(!(concept_x=="person" & pos_x=="NE")) %>% select(head_x),
+  d %>% filter(!(concept_y=="person" & pos_y=="NE")) %>% select(head_y)) %>%
+  unlist %>% unique %>% as.data.frame 
+#%>% write_excel_csv("lemmatization.csv")
+
+```
+
+```{r lmtz2, message = FALSE, warning = FALSE}
+
+# re-import lemmatized lists ----------------------------------------------
+
+l <- read_csv("../data/lemmatization.csv")
+
+```
+
+Now we generate frequency lists with the help of the original dataframe and the lemmatization table.
+
+```{r frqs, message = FALSE, warning = FALSE}
+
+# get frequency of x & y lemmas -----------------------------------------------
+
+lx <- left_join(tibble(word = d$head_x),
+          l) %>% na.omit %>% select(lemma) %>% table %>% as.data.frame(stringsAsFactors = F) %>% setNames(c("lemma", "Freq"))
+
+
+ly <- left_join(tibble(word = d$head_y),
+                l) %>% na.omit %>% select(lemma) %>% table %>% as.data.frame(stringsAsFactors = F) %>% setNames(c("lemma", "Freq"))
+
+
+```
+
+We additionally read in the ENCOW frequency list (available at https://www.webcorpora.org/opendata/, only relevant subset used here) to get the corpus frequencies of the lemmas in question.
+
+
+```{r encow}
+
+encow <- read_csv("../data/x_is_the_new_y_encow_frequencies.csv")
+
+```
+
+Using this dataset, we add the corpus frequencies to the frequency tables created before.
+
+```{r frqs2}
+
+# add frequencies -----------------------------------------------
+lx$Freq_encow <- sapply(1:nrow(lx), function(i) sum(encow[grepw(lx$lemma[i], encow$word),]$Freq_encow))
+ly$Freq_encow <- sapply(1:nrow(ly), function(i) sum(encow[grepw(ly$lemma[i], encow$word),]$Freq_encow))
+
+
+```
+
+Given that we draw on a manually lemmatized dataset, while the ENCOW frequency table is based on automatically tagged data, the match is not perfect. Thus, there are a few lemmas that are not attested at all in the ENCOW lemma list. As this only affects a few lemmas, they are discarded in the next step.
+
+```{r discardzeros}
+
+# omit all that are not attested in ENCOW
+lx <- filter(lx, Freq_encow > 0)
+ly <- filter(ly, Freq_encow > 0)
+
+```
+
+
+This dataset can now be used as input for distinctive collexeme analysis.
+
+```{r collexanal}
+
+collex.dist(lx) %>% datatable() %>% formatSignif(columns = c("E.CXN1", "E.CXN2", "COLL.STR.LOGL"), digits=3)
+collex.dist(ly) %>% datatable() %>% formatSignif(columns = c("E.CXN1", "E.CXN2", "COLL.STR.LOGL"), digits=3)
+
+
+```
+
+
+## Semantic vector-space analysis
+
+To assess the semantics of the slot fillers in more detail, we use a semantic vector-space approach. To this end, we first add a column with the manually corrected lemmas to the dataframe.
+
+```{r}
+
+# add lemmatization to head -----------------------------------------------
+
+d <- left_join(d, rename(l, c(lemma_head_x = lemma)), by = c("head_x" = "word"), all.x = T)
+d <- left_join(d, rename(l, c(lemma_head_y = lemma)), by = c("head_y" = "word"), all.x = T)
+
+# fill NA head columns
+d$lemma_head_x <- ifelse(is.na(d$lemma_head_x), d$head_x, d$lemma_head_x)
+d$lemma_head_y <- ifelse(is.na(d$lemma_head_y), d$head_y, d$lemma_head_y)
+
+
+```
+
+A list of collocates for the lexical items in the x and y slots was compiled using the downloadable portion of the ENCOW corpus. More specifically, the data were retrieved as follows:
+
+1. A lemma list was exported from the concordance of "X is the new Y" ENCOWA hits after manually deleting all false hits.
+2. The downloadable ENCOWBX files were queried using CWB. For each query item, a maximum of 10,000 hits was taken into account. More precisely,
+
+(a) a frequency list of all c. 2,000 lemmas was compiled in the first of 15 batches the ENCOWBX corpus is comprised of, using the following queries:
+
+```{r eval=FALSE, collapse=TRUE, class.source = 'fold-hide'}
+
+cwb-scan-corpus -o freqs1.gz -r "/Volumes/INTENSO/Corpora/ENCOW/cwb-registry" -f 10 ENCOWA lemma+0="/90s|degree|hayes|supervisor|aa\+|democrat|horse|pregnancy|amis|transparency|plumbing|retention|virtual|spd|apple|torres|content|pr|recommendation|selfie|service|functionality|link|pakistan|arab-american|assertiveness|tax|university|hotel|arsenal|hoover|hamas|pension|cooking|junkie|fever|wells|internet|max|zombie|magnets|hunter|china|idealism|myth|environmentalist|portugal|swansea|mouth|sarcasm|doll-art|catchpole|page/brin|fox|mcgregor|seigel|hope|hangover|kosteniuk|courtney|utah|campaign|anti-terrorism|gathering|anti-americanism|anti-christianity|anti-zionism|government|islamophobia|antizionism|williams|facebook|experience|angry|console|glass|medicine|app|htc|engineering|jacket|gap|brazil|latvia|entrepreneur|ceos|einstein|virginia|alaska|allagents|cotton|spur|cinema|games|politics|science|mark|crow|curator|blogger|dairy|meat|mould|arab|okra|america|flabby|conversation|bolshevism|september|bronte|sleep|c|c-word|culture|masters|relationship|sharing|forums|bourbon|burrito|neck|peeps|pumpkin|sriracha|stress|liberalism|silvstedt|men|slipper|roll|wild|american|developer|terrorist|zionist|shoe|poncho|grosjean|python|computing|nightwing|simpson|rpi|sledding|beardism|smiths|normal|ugly|sov|kitchen|rabbit|black|turk|gonzales|beijing|detroit|hitchens|alpha|dvcs|rhianna|phone|crotch|small|hijab|trillion|trinity|observation|eisfeld|atoms|dull|clothing|accountability|advertising|airsoft|algorithm|aloeminium|ambiguity|analytics|anti-?semitism|atheism|audio|austerity|average|jacob|balsemic|barter|basic|jack|bearish|bearskin|beige|belgian|belgium|bicycles|bigomy|8-?bit|64-?bit|bitch|bitch-?shaming|bitchy|bleak|blog|blogging|blonde|blue|bold|brindle|brown|budget|budgeting|burlesque|bustles|busy|butcher|camo|canada|cannibalism|carbon|cars|ceph|chain|characters|chav|cheating|cheerios|chemistry|chickens|children|chiropractic|choir|christian|cloud|coachbuilt|acceptance|color|colors|commission|confidence|cork|corpse|coworking|crap|creative|creativity|crying|curation|dancing|dark|data|day|deficit|denim|depression|dialogue|display|dot|pink|drag|drama|elvis|green|epic|ereaders|ethical|everything|evidence|evil|exo-?suits|eyeliner|units|factor|failure|getting|fat|fear|flat|mac|fluffy|folk|footwear|free|friday|frugal|funds|fur|fusion|garden|gay|geek|ghost|ginger|back|gluten-?free|gold|google\+|goth|gray|greed|grey|growth|guts|hair|hash|hat|healthy|history|horses|house|hunting|hybridi[sz]ation|hyperspeciali[zs]ation|hypocrisy|ignorance|imperfection|indigo|innovation|intelligence|investing|irc|being|jail|javascript|jesus|k|cyberpunk|khaki|birth|knowledge|korean|layout|learning|liberation|libertarian|lime|live|malt|marketing|mashup|masks|matter|mauve|shopping|meantime|measurement|reaching|media|meeting|microcontent|mobile|modesty|monstrosity|mpg|muslim|navy|nerd|network|neurotic|niche|noir|non-?tribal/cd"
+
+cwb-scan-corpus -o freqs2.gz -r "/Volumes/INTENSO/Corpora/ENCOW/cwb-registry" -f 10 ENCOWA lemma+0="/non-?tribalism|noticeable|nude|obama|objectivity|obscurity|off-?topic|openness|orange|oxymoron|paisley|palestinian|paper|perception|persistence|jones|phishing|piracy|pixie|plus|podcasting|poetry|point|poly|poo|postmodernism|poverty|pregnant|prints|privacy|product|progressive|extroversion|publishing|purple|pvc|quirky|racism|rape|rare|red|diamond|redesign|regulation|republican|research|reserve|retro|maleficientevil|robot|romanticism|room|rye|over-?50s|saleflat|saving|bitching|shop-?dropping|silence|silver|singledom|skepticism|slip|slow|smart|snow|snowclone|sociability|software|soup|spacebook|square|ss|state|stealth|stinky|stock|street|stripes|stupidity|sustainable|sweden|system|tags|tattoo|taupe|driving|tea|technology|uniformity|thrift|thriftiness|tinfoil|toast|transformation|trust|truth|truthy-?satire|tumblr|hate|twitter-?hate|typography|ukulele|underwear|ux|vamp|vertigo|video|violet|vodka|voice|vulnerability|wave|wheelchair|white|wine|wireless|women|yellow|zeldman\.com|artist|os|outlet|yellowface|mexican|pedophile|cameron|body|cast|vid|self-?publishing|speaking|opml|networks|bald|brunette|driver|football|chop|mccain|valentine|laker|information|strong|soaps|islamism|everton|hyde|pride|icon|web|blook|google|city|gibson|stick|girlfriend|girl|c-?ptsd|attorney|cowardice|spain|stamp|flying|implant|chas|warwickshire|burien|canvas|rainbow|cauliflower|ostrich|stroke|boutique|iphone|star|wristband|toque|whedon-harris|book|comment|brewer|b|b\+|d|theory|glamping|quays|dementia|balotelli|wall|coach|neo-?liberalism|talentism|computer|biodiversity|brand|hunk|jericoa|barbel|mickle|albom|view-?ticker|company|clooney|bond|fabianski|3d|datacenter|chavez|complex|library|museum|twihards|boldness|marcum|player|civility|left|retriever|uncertainty|demoing|greens|sherry|cruise|angela|thatcher|kilcourse|customi[sz]ation|miami|goat|curry|newcastle|texas|vegas|objectification|chick|sex|homocysteine|xiaoming|anger|msft|stadium|supermarket|bush|access|soda|twitter|device|mallory|dvd|television|shareholder|periphery|weekly|movement|jazz|metal|rock|comics|pcism|trashy|strachan|diagram|cliches|touch|watt|aerosols|java|php|molly|ajax|card|cake|therapy|preschool|economy|militarisation|right|years|puzzles|papyrus|retweet|trackback|christ-?bots|crime|environmentalism|islam|socialism|terrorism|jv-?ists|animosity|promise|collaboration|hights|ryanair|grass|timber|wood|podosphere|non-?conformity|rebellion|moderate|unpredictability|bible|travel|community|eggs|brewing|craft|urls|coal|trademark|oil|slimness|nicaragua|panama|skegness|ted|responsibility|revolt|boro|pipe|denialism|social|regurgitation|baseball|darts|fairtrade|ham|show|doctor|gaming|nuts|debt|jews|codes|process|bacon|cookie|cupcake|macaron|pie|brownie|popcorn|vintage|cricket|biology|israel|manga|website|guardian|arizona|parker|feeling|carver|guy|past|photoshopping|metadata|baggs|goldacre|night|losses|retirement|months|frugality|building|numb|deja-?vu|stafford|download|beta|bellamy|shannon|maude|ariza|anxiety|breadth|chic|hand|browser|laptop|happiness|hall|wilshere|kate|class|print|conservative|whaley|murray|price|abnormality|memory|ram|disney|pixar|abuse|thief|dot-?gov|biotech|plant|sheik|wal-?mart|lukaku|copy|canopy|sober|bro|prison|tools|easy|norwood|papua|west|halloween|sociology|radio|anti-?feminism|thomas|peterballb|literacy|usa|economics|tweet|e-?mail|extremism|eminem|stevens|board|messaging|indie|participation|tape|australia|slang|manuel|self-?expression|derivatives|inequality|meritocracy|old|man|demers|luxury|journalists|chains|essex|ign|asia|europe|rachel|nestor|aoltv|good|ubiquity|blockbuster|mediocrity|brows|deleting|pinterest/cd"
+
+cwb-scan-corpus -o freqs3a.gz -r "/Volumes/INTENSO/Corpora/ENCOW/cwb-registry" -f 10 ENCOWA lemma+0="/antifacism|blur|salar|samarra|family|farming|friends|ron|drone|fishermen|anti-?fascism|republicanism|zionism|neocon|credit|food|smoothie|digital|smartphone|july|empowerfullment|murder|mclaren|belly|offal|videogame|elf|consideration|fission|youtube|kindergarten|third|dictator|ramsey|crippled|wisconsin|eurostar|raclette|soccer|casual|drive|six|bashing|estonia|monaco|who|sister|bill|haw|paid-for|dependency|banana|monday|sunday|thursday|wednesday|evening|mother|door|brewery|baby|humans|electro|awkward|instability|author|alper|design|film|h&m|skype|workspace|architecture|coffee|minecraft|curating|goy|immigrant|obese|people|bots|duck|judai[sz]er|frazer|time|british|iran|poland|irs|assistant|tsa|french|arteta|grant|tongue|boys|bluebell|anti-?glamour|manchester|festival|sprinkle|cooling|diaoyu|staying|art|attention|copper|energy|glue|land|water|cycling|diving|gardening|poker|shooting|surfing|warcraft|wow|impression|bad|mediocre|github|nike\.com|yahoo|humanism|emo|koreans|ninja|fantasy|artisanal|youths|megacorps|chaput|reshammiya|capello|statistics|academy|large|turkey|ethics|glow|mean|plustainability|pollution|resilience|sustainability|accessible|hud|pattern|rid|gentle|bagram|sword|bolter|job|dimitriades|prunty|carb|builder|jihad|bump|burslem|hour|fletch|cleverley|ralph|shop|twilight|fact|to-?truth|california|image|affluence|individualism|clarendon|sale|those|vicodin|seo|manhattanite|wheats|dollar|b\.a\.|ba|college|hairspray|online|robotic|tech|geography|ahmadinejad|assad|laden|bama|blair|shamir|ahmedinejad|putin|hussein|vlad|space|invasion|reform|bedroom|homeland-?referencing|place|hypermiling|hoppy|sour|cold|deadspot|sql|arrogance|shopper|afr|diesel|skrtel|shahzad|intel|microsoft|sap|landis|spinach|britain|ias|computationalism|pragmatism|realism|chrome|firefox|ipad|webkit|school|corporation|designer|financier|hacker|outbound|paddock|customer|care|sanity|outside|arm|backloading|explorer|nebraska|philosophy|extremist|english|earnest|church|honduras|japan|money|icloud|battles|thompson|sam|desmond|bourne|february|june|may|october|korea|flashplayer|shorts|pants|woodley|park|asian|believers|eurosceptic|hispanic|patriot|unemployed|war|incarceration|wod|stanley|lula|harmon|bachmann|taplin|brooks|wilson|mccallum|hagel|dunham|hanks|george|bangkok|elway|audience|assange/cd"
+
+cwb-scan-corpus -o freqs3b.gz -r "/Volumes/INTENSO/Corpora/ENCOW/cwb-registry" -f 10 ENCOWA lemma+0="/chipping|zanthura|bloke|comfort|chance|kagawa|collard|porn|aquilani|blake|dougal|keepin\'|barack|sauce|gesture|benghazi|quesarito|oligarch|cupid|asa|group|nra|limbaugh|voyeurism|knowing|bbq|afg-?pak|cyrenaica|kr|wroclaw|neuköln|national|bnp|bridgford|licenses|typewriter|dubai|macao|macau|br|blu-?ray|spotify|events|programming|tears|dunne|fun|iraq|derby|stoke|centre|freak|blackpool|work|keith|smoker|lutz|neoconservative|news|starbucks|camera|text-?ad|keeping|varnish|citizenship|code|numeracy|scripting|technologies|rag-?mags|charts|doncaster|draw|quiet|abreu|jams|brow|alec|corden|magazine|overgrowth|simplicity|inspiration|ipod|rove|aguilera|blog-?hubs|pc|minority|diarra|romeu|island|female|milan|shiregreen|messi|january|casta|kardashian|viewtiful|capaldi|engagement|geolocation|hr|journalism|pleasure|proof|storytelling|support|teaching|crocs|sto|ledger|dando|muscat|april|lewe|mfa|training|dean|romney|reid|mcleary|lofts|search|client|gigabyte|core|sponsorship|ribbon|aluminium|carel|beam|eisenberg|milliband|bianca|ne-yo|nando|merton|macro|g\.|goggle|nokia|android|indies|age|framework|flash|neuron|kawasaki|chelsea|polypropylene|vista|billion|sims|maximalism|neutrality|burkh?a|beaver|lynx|dead|music|debater|michigan|pharmaceutical|self-?promotion|thing|belfast|tuesday|programmeri[zs]ation|meaning|crustacean|taxpayer|lymington|lee|choice|less|london|pannu|stylus|owls|ben|macpherson|warming|distro|prs|male|atheist|mongodb|celebrity|fiction|sf|fabric|steve|kazaa|el-sisi|local|labour|regionalism|regionality|fake|roadside|russia|taliban|us|hizbollah|islamist|israeli|leader|neo-?con|serbs|bugaboo|ed|army|loser|metallic|d\.c\.|eve|florida|istanbul|new|oid|québec|post|liverpool|birdie|brother|interesting|farage|cpj|sugar|hamilton|eeevangelical|io|claire|greenwald|medal|samsung|abnormal|halfway|layne|dalston|balham|eating|scalia-alito|prescott|on-?topic|headphone|unofficial|gas|opacity|talent|kelly|ufelon|viggo|young|updosing|hernandez|pulido|offline|closing|india|cargo|democracy|sheen|opt-?out|bleakness|threadbare|peach|extraordinary|god|heresy|tent|evp|impact|crowdsourcing|jay|england|pale|primal|citizen|trump|volley|tv|tights|screen|e-?book|politician|austin|morocco|vienna|astronomy|interactivity|cyril|atm|un-?pc|tablet|moleskine|asparagus|oranges|disability|overload|imperfect|temporary|africa|ipods|ken|physicist|instagram|screenshot|cocoa|tart|aluminum|babe|lifestyle|nytol|queensryche|wire|miquel|viking|abbeydale|sushi|plan|train|stocking|experimentation|welfare|couch|tikkabilla|mice|svg|wrist|gamification|bingo|grits|prosecutor|banker|nn|documentary-?making|rugby|buyer|okay|psychiatrist|kale|lamb|skin|torturing|thought|violence|cookbook|negative|lawyer|sexy|story|distribution|filing|relevancy|riga|yoga|kreuzberg|linkedin|rfc|bike|boris|scientist|assessor|biologist|suri|public|education|prediction|loss|worker|leisure|fats|catholicism|eco-?therapy|freiburg|bombing|marketer|teen|butternut|bluegrass|start-?up|pre-?retirement|correctness|hysteria|vegetarianism|envirocultist|chevron|quantity|polyamory|offender|refn|loud|mode|religion|association|antiracism|classism|cynicism|disparity|feminism|homophobia|multiculturalism|denial|scepticism|transphobia|wealth|center|net|placement|glaad|capital|disco|creating|pear|bar|christie|francis|mata|palin|metaphysical|hypertext|metaphor|fishing|pocket|irrationalism|prudent|dread|lip|mustache|redcurrant|sparrow|stupid|servers|sheffield|demakes|steampunk|ringing|christ|portfolio|project|ascension|seed|poor|workweek|lambie|pacheco|down|wrong|davies|safe|highways|rage|officials|connery|damon|archaeology|bowl|business|chef|comedy|cyclocross|director|entrepreneurship|folk-?pop|heist|jockey|knitting|living|phonetic|poultry|presentation|rhetoric|sandal|self-?harm|skiffle|stockbroking|tradition|variety/cd"
+
+cwb-scan-corpus -o freqs4.gz -r "/Volumes/INTENSO/Corpora/ENCOW/cwb-registry" -f 10 ENCOWA lemma+0="/authenticity|autobiography|act|dj|feedback|hairdressing|influencer|killer|material|moderator|molestation|anything|pet|physics|rap|rapper|shanty|i\.t\.|gamer|programmer|production|joss|paul|boredom|constantinople|dc|washington|luiz|theo|heston|robertson|rulers|parkgate|microformat|rtf|pearce|chinese|collectors|weaver|4k|cool|operator|chicago|singapore|savings|crazy|eccentricity|madness|math|topicality|kurdistan|selling|list|networking|vettel|libertarianism|milo|e-?bikes|norway|josh|snyder|marketeer|hd|fdr|optimi[zs]ation|rss|bellevue|bury|hounslow|ridgewood|elite|treasure|touching|serving|juvenility|nfo|summer|weti|chocolate|housewife|self-?loathing|talk|growing|judgment|40|brainy|corny|dumb|helmet|homo|responsible|simple|skinny|statistician|strength|unflappable|gupta|caruso|midi|cross-?dressing|drinking|sewing|avalanche|shenzhen|iggy|windrow|chavs|fit|tighter|orbit|mezzoblue|usenet|socialist|abortion|capitalism|coercion|copyright|sick|awake|big|micro|tall|nme|drinker|obesity|sitting|suvs|email|effect|strategy|lib-?dems|hollywood|hardware|order|afghanistan|nobodie|everybody|something|barista|ortega|kim|north|eu|bosnia|ppc|vandalism|shouting|dystopia|stability|cutting|yates|hard|break|circle|knol|military|dubrovnik|husky|owner|tattooist|change|understanding|inversion|sinofksy|wikipedia|murphy|nesbo|stomping|go|bent|rhino|billionaire|cyberspace|p\=np|weak|desktop|student|charge|membership|kakuro|set|spring|saturday|mini|rationality|shortage|kindness|flu|sandwich|theft|cent(re|er)|smile|tarmo|hide|tail|disk|http|panic|turquioise|browsing|mail|secularism|reporter|writer|ghraib|chief|mooc|sort|recycling|tommie|technocracy|curvy|forties|kid|bottle|sock|datamoshing|hocus-?pocus|bali|hand?kerchief|tlr|alcohol|salt|yesterday|dogs|judging|kiriakou|shia|shitty|magarri|namor|party|maria|islamification|nihilism|affection|agents|legacy|smartcar|communication|pineapple|they|legging|langerado|fallacy|lies|borgia|bitcoin|salmon|barnsley|dakota|sicily|threesome|coldplay|moore|slackware|kitty|beauty|obrist|postgrad|dragon|side|kenya|ut|fictionalism|mermaid|angel|immortal|minotaur|witch|let|biloxi|edtech|jakeways|vertonghen|afghan|certificate|sandro|vhs|percussion|love|leopard|potplayer|whatwg|etc|towel|reporting|consensus|vatican-?gate|lumens|vagueness|datalink|words|apis|zimbabwe|east|mars|engine|manor|tequila|weed|beacon|lottie|westfield|digit|mashable|mongolia|sa|yemen|stewart|murdock|ios|x|beer|sneaker|cook|paedophile|kok|measle|wes|picture|professors|ufc|y|avenger|kinect|lily|coverage|sequestration|myspace|nyt|tkm|sox|decade|tomorrow|healing|parent|pensioner|pusher|levaquin|tuncay|ki-?duk|galloway|post-?apocalyptic|monster|80s|a-?levels|dewdney|aaa|abolitionist|isaac|abstin[ea]nce|hamza|accountancy|acquisition|actual|add|adobe|adriano|aesthetics|african-?americans|aggression|aid|airline|airlines|capone|qaeda|alchemy|alcoholic|aldomania|liddi|alexandria|alien|amazon|dream|amish|amsterdam|steel|analysis|anarchy|anderson|andreessen/bina|coulson|goram|rooney|angst|kournikova|smith|antarctica|anti-?communism|anti-?doping|antisemitism|margarito|aol|newton|application|appple|monkey|51|argentina|argonaut|aristocracy|aristotle|arkansas|arla|armor|devaney|scargill|graduate|tobacco|asbestos|at&t|athens|athletic|atlantis|attila|august|austen|b-?word|babylon|bachelor|bachelors|backlink|backyard|bagel|ling|bank|kopple|barbarian|barefoot|barrel|barrichello|weaving|batman|baucus|bbc|skiing|bear|beatles|beautiful|butthead|beef|berber|berger|berlin|levin|betamax|beyonce|bicycle|bifocals|bikini|binary|bischoff|bits|bizarre|panthers|blackberry|blackface|blackout|blacks|bling-?bling|blogroll|bmw|race|bob|dole|nichols|fett|bobcat|bollywood|bolshevik|bolton|bono|boobs|woogie|cover|borg|co|bowyer|box|boyfriend|bpd|brahmin|bravery|lines|breaking-?and-?entering|brian|brick|bristol|spears|brooklyn|brussel|buffalo|bullet|burberry|burqa|burton-depp|buying|c\.v\.|calculus|camping|wharf|cancer|cantona|car|footprint|boozer|s|dufay|carp|carpenter|nation|daly|cartel|cash|casillas|castle|castro|cathedral|morlands|caution|sabathia|censorship|ceramic|cerebus|certainty|trailer|champagne|channel|chardonnay|che|chekhov|chili|chivalry|cholesterol|yun-fat|christianity|norris|chuckecheese|churchill|cigarette|darling|citizenry|life|classical|classic|classy|ranieri|writing|cliche|click|stoll|climate|co2|cobol|cocaine|coke|colonialism|colonialist|colour|sans|section|commies|commissar|commodity|communism|communist|compassion|competition|compton|concordepan|concrete|conferencesphere|confidentiality|conformity|conservatories/cd"
+
+cwb-scan-corpus -o freqs5a.gz -r "/Volumes/INTENSO/Corpora/ENCOW/cwb-registry" -f 10 ENCOWA lemma+0="/consistency|constitution|consumerism|consumption|pill|cookery|syrup|corset|rica|sol|counterculture|court|coventry|crackberry|crate|creation|creationism|crisps|crossfire|crossroads?|crossword|croutons|crucifixtion|crusader|ctcss|curling|cv|czechoslovakia|da-?da|dailies|dallas|haren|queen|daniels|devito|mills|knight|darkroom|brent|dawkins|panels|death|decadence|decentralisation|deep|gomes|demo|demographics|demos|martyr|niro|sinor|howell|rodman|depth|stürmer|tan|blowout|desk|despair|shala|diaby|diana|diary|digg|digressives|dillard|discount|disease|diva|dope|dealer|dot-?com|ellis|downtown|drogba|dropbox|drudge|drunk|dslr|dude|dungeon|easier|dulwich|easter|editorial|editor|egalitarianism|jefe|dorado|ela|electricity|electronic|pitch|elevator|elitism|ring|engraving|enjolras|entertainment|novel|equality|equity|er|errorhoff|essential|estates|estramadura|ether|eurogamer|peron|evita|eworld|excellent|exclusivity|extreme|eyelash|f\.|facism|falco|falluja|fallujah|farm|faramir|farmer|fascism|fascist|fashion|fast|fax|ferrari|mignon|steak|filth|finance|fire|fireplace|fireside|grade|first|flat-?earther|flesh|fletcher|flexible|fondue|formal|fourteen|france|londons|dibnah|kruger|freedom|freelance|frontline|froyo|fuel|fundamentalism|funky|funny|reactor|future|gaige|galileo|gallery|gameplay|movie|gangster|garage|gatekeeping|geese|gentiles|bailey|georgia|german|germany|gestapo|ghettoblasters|ghey|gilberto|gillan|giving|gladioli|glamour|glasgow|glastonbury|glitter|godwin|going|sachs|golf|gollum|kiss|reader|gopher|tex|goretex|gospel|gothic|gourmet|governments|casey|govinda|taylor|grammar|grammars|grande|great|greece|grib?benes|gross|guantánamo|gun/cd"
+
+cwb-scan-corpus -o freqs5b.gz -r "/Volumes/INTENSO/Corpora/ENCOW/cwb-registry" -f 10 ENCOWA lemma+0="/gutenbergpress|gutenbergs|mary|hairdresser|handshake|hanley|hargo|hargreaves|stassen|harrods|potter|speech|hawaii|headline|heaven|hebrew|hellenism|helvetica|hemline|heretic|heroin|hi-?fi|hicks|hickton|hieroglyphs|diploma|musical|high|hipster|hitler|hitlers|holiday|holocaust|home|base|homeland|homeworking|hoola-?hoop|hot|hotmail|hotspots|html|humility|hunter-?gatherer|hvr|hybrid|hyypia|holloway|ibm|ibms|icarus|ice-?cream|iceberg|iceland|ics|ie|iluminati|imperialists|inbound|indians|individual|insanity|inside|fasting|iowa|ira|irish|ironic|italian|itunes|ballard|robinson|plastic|jazzercise|jean|jeans|lawrence|jersey|jew|jewellery|reference|carioca|lieberman|mccarthy|bircher|doerr|galt|updike|wayne|bahru|mcdaniels|journalist|juicing|jumanji|juninho|justice|bieber|kaka|karaoke|keane|reeves|kennedy|ketchup|shortcut|sanh|kimye|iii|king|kinsey|kissing|kkk|kleenex|kosovo|kp|krakow|labor|labourer|market|lease|las|disc|laserdisc|last\.fm|afternoon|latin|laughter|laursen|lebanon|leeds|leicester|vinci|leper|leprosy|hemsworth|libedems|libel|liberal|lie|light|lighter|lilac|allen|exchange|lipstick|lisp|literature|lolcat|armstrong|love-?ins|lowbrow|lp|lucas|walliams|lucky|lugaru|m\$|machiavelli|madonna|magic|mainframe|mainstream|majority|makalele|makelele|maldive|utd|consultancy|marabou|maradona|march|marianne|monroe|mario|trail|marmite|maroon|marshmallow|marxism|skiba|mauritius|mayfair|mba|mcdonald|mcgugan|mcmansion|medici|megabyte|megachurch|megapixel|mentorship|menu|mercury|merlin|meta|mexico|cera|foot|jackson|owen|windows|mid|mid-?lister|middleware|midichlorian|sweeney|edition|cd|million|minimalism|miniskirt|mink|minstrelsy|missionary|mississippi|mob|floral|modern|molotov|monarch|moneti[sz]ation|liner|carlo|monty|morality|more|morrissey|moscow|mosque|theresa|mouse|moustache|mph|clutch|grundy|mtv|mullet|multi-?culturalism|store|musketeer|mysql|mythology|n\*\*\*r|naked|nan|napster|nasa|nasser|nation-?states|nationalism|natural|naughty|nazi|nazii?sm|negro|kinnock|marcus|nero|netscape|neutral|guinea|hampshire|york|newfoundland|newspaper|newsstand|gingrich|nice|nick|saban|nicotine|mansell|nigga|nigger|nio|nixon|noah|chomsky|nobel|non-?permanent|norton|nostradamus|hill|cuisine|nr|o'connor-ginsburg|official|oj|old-?school|solskjaer|lozano|omarosa|opening|ophelia|opium|oprah|opt-?in|optimism|opulence|ordinary|organic|boy|orthodoxy|stage|ouija|outcome|outsourcing|somethin'|paganism|pakistani|paleo|palestine|pantomime|paparazzi|paperback|paramedic|paris|pascal|passivity|payphone|pda|peanut|pearl|hilton|perfect|perimeter|permanent|gulf/cd"
+
+cwb-scan-corpus -o freqs6.gz -r "/Volumes/INTENSO/Corpora/ENCOW/cwb-registry" -f 10 ENCOWA lemma+0="/buckle|essay|pete|philosopher|album|photograph|lesson|pilates|floyd|pique|pirates|pitsmoor|pizza|plane|planking|planning|plantation|platinum|playing|playschool|shears|png|polenta|police|polo|pool|pop|pope|popstar|pork|rind|pornography|positive|postman|potato|power|suit|powerpoint|prague|prayer|prc|pre-?interview|pre-?school|prenzlauer-?berg|release|press-?bof|prezza|priesthood|priests|charles|private|line|productivity|profit|profligacy|prohibition|proletariat|property|proteins|protestantism|prozac|prussia|psg|publisher|pubs|contestant|pullover|punk|bands|purgatory|puritanism|puritan|put|pwl|quality|queer|tarantino|landlord|rack|rad|radicalism|radical|railway|push|random|rap-?battle|raspberry|raw|reagan|real|reality|realtree|reason|reckless|dress|kite|butter|remake|renfair|requiem|goalkeeper|r[eé]sum[eé][eé]?|revelation|krispies|rice|rich|wentworth|partridge|mute|up|ferdinand|risky|river|baron|hood|jerome|rock'n'roll|dangerfields|hammerstein|harris|stone|rolodex|circus|roman|rome|terry|ronaldo|parks|roswell|rotherham|oyal|royalty|rtfa|ruby|crowe|russian|franklin|s\.e\.o\.|sabbath|sacd|sad|saint|samizdat|francisco|pedro|sand|sane|sanskrit|satire|arabia|scam|scandinavia|schumi|scientology|doo|scooter|scotland|hinze|walker|script|kiddies|sd|sdr|seattle|secessionist|millionaire|sectarianism|seeing|segway|selfishness|senility|serfdom|serf|seti|sexiness|shaiks|sharia|shatner|shepherd|chino|shylock|sidewinder|silicon|sinatra|sincerity|sinner|siren|skinhead|skydiving|slashdot|ship|leia|slavery|slave|smalltalk|smash|smoking|snob|sodom|soil|soldier|somalia|somebody|sommelier|somoza|sondheim|sony|lauren|south|soviet|spam|spandex|spanking|vampire|speaker|speculation|spending|spielberg|spin|sporty|spouses|squidoo|tropez|staffies|stainless|stalin|stalingrad|stasi|quo|stereotype|martin|larsson|stop|storefront|straight|strange|donkey|thug|studio|cup|sub-?prime|fees|subscription|success|sudoku|lunch|sunray|super-?size|superheroes|superman|superstition|surrealism|boyle|suv|sweat-?shop|knife|swoosh|symbian|nemeth|t-?shirt|tables|taffeta|tcp|teal|don|telephone|temple|ian|pratchett|offensive|texan|textbook|theatre|thelma|theocracy|thin|speak|thirties|is|jefferson|tickle|tie|tiltshift|time-?travel|tioman|tits|tlc|today|toddlers|tolerance|drake|cooper|toner|tonto|stark|tories|torture|tory|totalitarianism|toughness|tower|toxic|publications|trans-?am|triangle|tribesmen|trophy|trousers|bonnaroo|tudors|mania|tuna|tuscany|tuxedo|twosome|u2|ubuntu|uffie|ugliness|ulay|uncool|undergrad|benefit|unicorn|usc|interface|ussr|vaccine|dentata|vanilla|vanity|var|vegan|1\.0|versailles|vertical|vidic|vietcong|vietnam|foster|vinyl|violin|virginity|visual|vlc|w3c|warlord|warm|warsaw|washing|wasp|cooler|watergate|watts|weakness|weapon|weimar|wheels|whirlow|whiskey|lund|whistler|whiteley|whore|widget|rogers|hearst|window|98|winona|winter|hunt|whistle|jing|woodstock|woodward|woody|word|wwe|x-?men|xbox|xtel|y2k|yamaha|yankee|page|yellowpage|youngster|youth|yule|z-?pak|zealot|zen|zenden|yimou|zippy/cd"
+
+```
+
+(b) The frequency list was used to generate the queries for the actual vector-space analysis. For high-frequency items, the first 10,000 hits in ENCOWA were used. For less frequent items, hits from ENCOWB, ENCOWC, ENCOWD etc. were also taken into account. In all cases, the number of hits taken into account was capped at 10,000. Items that occur less than 10 times in ENCOWA were not taken into account at all as we assumed that even taking the other corpus batches into account, we would not be able to find a sufficient amount of hits. The results of our search can be found in the CSV sheet "collocates".
+
+
+```{r}
+
+# collocates
+coll <- read_csv("../data/X_is_the_new_Y_distsem/collocates.csv")
+
+```
+
+We use the collocates to compute Positive Pairwise Mutual Information (PPMI), which in turn allows us to calculate the Cosine distance following Levshina (2015).
+
+```{r}
+
+# "collocate" column to rownames:
+coll <- as.data.frame(coll)
+rownames(coll) <- coll$collocate
+coll <- coll[ , -1] # remove first column
+coll <- t(coll) # switch rows and columns
+
+
+# get PPMI ----
+
+# get expected frequencies
+coll <- as.matrix(coll)
+coll.exp <- chisq.test(coll)$expected
+coll.PMI <- log2(coll / coll.exp)
+coll.PPMI <- ifelse(coll.PMI < 0, 0, coll.PMI)
+
+
+# get cosine similarity ---------------------------------------------------
+
+# cosine similarity function
+# (adopted from Levshina's [2015] Rling package)
+nr <- nrow(coll)
+m <- matrix(NA, nr, nr)
+
+colnames(m) <- rownames(m) <- rownames(coll)
+
+
+# for(i in 1:nr) {
+#   for(j in 1:nr) {
+#     cos <- crossprod(coll.PPMI[i, ], coll.PPMI[j, ])/sqrt(crossprod(coll.PPMI[i,
+#     ]) * crossprod(coll.PPMI[j, ]))
+#     m[i,j] <- cos
+#     m[j,i] <- cos
+#   }
+#   
+#   print(i)
+# }
+
+# export
+# saveRDS(m, "m.Rds")
+m <- readRDS("../data/X_is_the_new_Y_distsem/m.Rds")
+
+# get distances
+m2 <- 1 - (m / max(m[m<1]))
+
+# backup copy
+m2_matrix <- m2
+
+# as.dist
+m2 <- as.dist(m2)
+
+# as matrix
+m2_matrix <- as.matrix(m2, varnames = c("row", "col"))
+
+```
+
+### Multidimensional Scaling
+
+The resulting matrix is now used as input for multidimensional scaling:
+
+```{r}
+
+# mds
+m3 <- cmdscale(m2)
+m3 <- rownames_to_column(as.data.frame(m3))
+colnames(m3) <- c("Lemma", "dim1", "dim2")
+
+
+
+```
+
+### Partitioning around medioids
+
+For bottom-up identification of (potential) semantic groups, we use Partitioning Around Medioids (PAM).
+
+
+```{r}
+
+# Clusters
+m2_clust <- cluster::pam(m2, 14)
+m2_cluster <- m2_clust$clustering %>% as.data.frame()
+m2_cluster <- rownames_to_column(m2_cluster)
+colnames(m2_cluster) <- c("Lemma", "Cluster")
+
+# join dataframes
+m3 <- left_join(m3, m2_cluster)
+
+```
+
+### Visualization
+
+The MDS and clustering information can be used for visualizing the results. In addition, we add frequency information to the plot:
+
+```{r, warning=FALSE}
+
+# add frequency information
+m3 <- left_join(m3, l, by = c("Lemma" = "word"))
+m3$freq_x <- sapply(1:nrow(m3), function(i) length(which(d$lemma_head_x == m3$lemma[i])))
+m3$freq_y <- sapply(1:nrow(m3), function(i) length(which(d$lemma_head_y == m3$lemma[i])))
+m3$freq <- m3$freq_x + m3$freq_y
+
+# add relative frequency with which each item occurs in x or y slot
+m3$rel_x <- m3$freq_x / (m3$freq_x + m3$freq_y)
+m3$rel_y <- m3$freq_y / (m3$freq_x + m3$freq_y)
+m3 <- replace_na(m3, list(rel_x = 0, rel_y = 0))
+
+
+
+# plot (only Freq >= 10 to keep plot readable)
+
+# set a seed so that the location of the datapoints
+# (arranged by ggrepel package) will remain the same
+set.seed(1985)
+
+#plot
+(p1 <- ggplot(filter(m3, freq >= 5), aes(x = dim1, y = dim2, label = Lemma, col = factor(Cluster))) +
+  geom_text_repel(aes(size = log1p(freq)*2), max.overlaps = 15) + 
+    scale_color_discrete(terrain.colors(14)) +
+  guides(col = "none", size = "none") + theme_bw() + theme(axis.text = element_text(size = 18)) +
+  theme(axis.title = element_text(size = 18)) +
+  theme(strip.text = element_text(size = 18)) +
+  theme(legend.text = element_text(size = 18)) +
+  theme(legend.title = element_text(size = 18, face = "bold")) +
+  theme(text = element_text(size = 10)) )
+
+# ggsave("distsem01.png", width = 8, height = 8)
+
+```
+
+
+### Cosine distance between x and y slot
+
+Another interesting metric is the cosine distance between the x and the y slot of the individual instances of the construction. 
+
+```{r}
+
+# add Cosine distance to original dataframe
+d$cosine_distance <- NA
+
+for(i in 1:nrow(d)) {
+  if(d$lemma_head_x[i] %in% colnames(m2_matrix) &&
+     d$lemma_head_y[i] %in% rownames(m2_matrix)) {
+    d$cosine_distance[i] <- m2_matrix[which(colnames(m2_matrix) == d$lemma_head_x[i]),
+                                      which(rownames(m2_matrix) == d$lemma_head_y[i])]
+  }
+}
+
+# add column with x and y
+d$lemma_heads <- character(nrow(d))
+d$lemma_heads <- paste(d$lemma_head_x, d$lemma_head_y, sep = "/")
+
+
+d %>% arrange(desc(cosine_distance)) %>% 
+  select(lemma_head_x, lemma_head_y, cosine_distance) %>% na.omit %>% 
+  unique %>% datatable() %>% formatSignif(columns = "cosine_distance", digits=3)
+
+
+```
+
+A different visualization option: Instead of showing clusters by color we show how often the datapoint occurs in the x or y slot.
+
+```{r}
+
+# add relative freqeuency in x and y slot
+m3$rel_x <- m3$freq_x / (m3$freq_x + m3$freq_y)
+m3$rel_y <- m3$freq_y / (m3$freq_x + m3$freq_y)
+m3 <- replace_na(m3, list(rel_x = 0, rel_y = 0))
+
+# set a seed so that the location of the datapoints
+# (arranged by ggrepel package) will remain the same
+set.seed(1985)
+
+#plot
+(p2 <- ggplot(filter(m3, freq >= 5), aes(x = dim1, y = dim2, label = Lemma, col = rel_x)) +
+  geom_text_repel(aes(size = log1p(freq)*2), max.overlaps = 15) + 
+    scale_color_continuous(low = "blue", high = "red") +
+  guides(col = "none", size = "none") + theme_bw() + theme(axis.text = element_text(size = 18)) +
+  theme(axis.title = element_text(size = 18)) +
+  theme(strip.text = element_text(size = 18)) +
+  theme(legend.text = element_text(size = 18)) +
+  theme(legend.title = element_text(size = 18, face = "bold")) +
+  theme(text = element_text(size = 10)) )
+
+# ggsave("distsem02.png", width = 8, height = 8)
+
+```
+
+Visualizing semantic distance between X and Y
+
+```{r}
+
+distances <- d %>% arrange(desc(cosine_distance)) %>% 
+  select(lemma_head_x, lemma_head_y, cosine_distance) %>% na.omit %>% 
+  unique
+
+distances %>% ggplot(aes(x = cosine_distance)) + geom_histogram(binwidth = 0.03, col = "black", fill = "grey50") + theme_classic() + ylab("Count") + xlab("Cosine distance")
+# ggsave("cosine_distance_hist.png")
+
+
+```
+
+Selected items
+
+```{r}
+
+find_items <- function(x, y) {
+  return(distances[which(distances$lemma_head_x == x & distances$lemma_head_y == y),])
+}
+
+
+
+rbind(find_items("anxiety", "depression"),
+      find_items("female", "male"),
+      find_items("democrat", "republican"),
+      find_items("abnormality", "disease"),
+      find_items("alpha", "beta"),
+      find_items("audio", "video"),
+      find_items("pear", "raspberry"),
+      find_items("sushi", "pizza"),
+      find_items("small", "large"),
+      find_items("environmentalist", "socialist"),
+      find_items("sugar", "nicotine"),
+      find_items("computer", "radio"),
+      find_items("publishing", "literacy"),
+      find_items("paper", "confidentiality"),
+      find_items("mean", "green"),
+      find_items("sustainable", "black"),
+      find_items("ethics", "green"),
+      find_items("funds", "black")
+      ) %>% mutate(lemmas = factor(paste0(lemma_head_x, " - ", lemma_head_y), levels = paste0(lemma_head_x, " - ", lemma_head_y))) %>%
+  ggplot(aes(x = cosine_distance, y = lemmas)) + geom_col(fill = "black") + theme_bw() + ylab("Lemmas") + xlab("Cosine distance")
+# ggsave("xnewy_examples_distance.png")
+
+
+```
+
+
+# COCA
+
+For COCA, we used the following CQP query:
+
+```{r, eval = FALSE}
+
+[pos="N.*|J.*"] [word="is|are"] "the" "new" [pos="N.*|J.*"]
+
+```
+
+
+```{r}
+
+# read data ---------------------------------------------------------------
+d <- read_xlsx("../data/COCA_X_is_are_the_new_Y.xlsx")
+
+# add decade
+d$Decade <- gsub("(?<=...).", "0", d$Year, perl = T)
+
+# remove false hits
+d <- filter(d, keep == "y")
+
+
+
+# quick overview ----------------------------------------------------------
+
+# types, tokens, hapaxes
+tibble(
+  tokens = nrow(d),
+types_x  = d$lemma_x %>% unique %>% length,
+types_y  = d$Lemma_y %>% unique %>% length,
+types_all = paste0(d$lemma_x, "/", d$Lemma_y) %>% unique %>% length,
+hapaxes_x = d$lemma_x %>% table %>% as_tibble() %>% filter(n == 1) %>% nrow,
+hapaxes_y = d$Lemma_y %>% table %>% as_tibble() %>% filter(n == 1) %>% nrow,
+hapaxes_all = paste0(d$lemma_x, "/", d$Lemma_y) %>% table %>% as_tibble() %>% filter(n == 1) %>% nrow
+) %>% kbl()
+
+
+# quick visualization -----------------------------------------------------
+qbarplot(filter(d, black == "n"), Decade, concept_x, pos_x, wrap100 = T) +
+  scale_fill_grey(start = .8, end = .3)
+qbarplot(filter(d, black == "n"), Decade, concept_x) +
+  scale_fill_grey(start = .8, end = .3)
+qbarplot(filter(d, black == "n"), Decade, pos_x)
+qbarplot(d, Decade, black)
+
+
+# relative frequency ------------------------------------------------------
+
+# read total frequencies
+coca <- read_xlsx("../data/COCA2017_total_frequencies.xlsx")
+
+# bin by decade
+coca$Decade <- as.integer(gsub("(?<=...).", "0", as.character(coca$YEAR), perl = T))
+coca_dec <- coca %>% group_by(Decade) %>% summarise(
+  Freq = sum(TOTAL)
+)
+
+# frequency of X is the new Y per decade
+d_tbl <- table(d$Decade) %>% as.data.frame(stringsAsFactors = FALSE)
+colnames(d_tbl) <- c("Decade", "Freq_x_is_the_new_y")
+d_tbl$Decade <- as.integer(d_tbl$Decade)
+
+d_tbl <- left_join(d_tbl, coca_dec, by = "Decade")
+d_tbl$pmw <- (d_tbl$Freq_x_is_the_new_y / d_tbl$Freq) * 1e06
+plot(d_tbl$Decade, d_tbl$pmw, ylim = c(0,0.25), type = "b")
+
+```
+
+
+## References
+
+- Flach, Susanne. 2017. collostructions: An R Implementation for the Family of Collostructional Methods. www.bit.ly/sflach.
+
+- Schäfer, Roland. 2015. Processing and querying large corpora with the COW14 architecture. In Piotr Bański, Hanno Biber, Evelyn Breiteneder, Marc Kupietz, Harald Lüngen & Andreas Witt (eds.), Challenges in the Management of Large Corpora (CMLC-3), 28–34.
+
+- Schäfer, Roland & Felix Bildhauer. 2012. Building Large Corpora from the Web Using a New Efficient Tool Chain. In Nicoletta Calzolari, Khalid Choukri, Terry Declerck, Mehmet Uğur Doğan, Bente Maegaard, Joseph Mariani, Asuncion Moreno, Jan Odijk & Stelios Piperidis (eds.), Proceedings of LREC 2012, 486–493.
+
+- Levshina, Natalia. 2015. How to do linguistics with R. Data exploration and statistical analysis. Amsterdam, Philadelphia: John Benjamins.
+
+
+
+
+
