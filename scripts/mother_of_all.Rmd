@@ -1,22 +1,12 @@
 ---
 title: "The mother of all X"
-author: "Authors"
-date: "`r format(Sys.time(), '%d %B, %Y')`"
-output: 
-  html_document:
-    theme: flatly
-    highlight: tango
-    toc: true
-    toc_float: true
-    collapsed: false
-    df_print: paged
+author: "Stefan Hartmann"
+date: "27/09/2019"
+output: html_document
 ---
-
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-
-assignInNamespace("cedta.pkgEvalsUserCode", c(data.table:::cedta.pkgEvalsUserCode,"rtvs"), "data.table")
 ```
 
 ## Preliminaries
@@ -63,7 +53,6 @@ library(collostructions)
 
 ```
 
-# ENCOW
 
 ## Data retrieval
 
@@ -79,7 +68,7 @@ The data were exported to the XML file mother_of_all.xml, which is imported in t
 
 ```{r import, message = FALSE, warning = FALSE}
 
-d <- getNSE("../data/mother_of_all.xml", xml = TRUE, context_tags = FALSE, verbose = FALSE)
+d <- getNSE("mother_of_all.xml", xml = TRUE, context_tags = FALSE, verbose = FALSE)
 
 ```
 
@@ -91,7 +80,7 @@ The concordance is exported for annotation, the annotated file is then read in.
 ```{r anno, message = FALSE, warning = FALSE}
 
 # write_excel_csv(d, "mother_of_all_ENCOW.csv")
-d <- read_xlsx("../data/mother_of_all_ENCOW.xlsx")
+d <- read_xlsx("mother_of_all_ENCOW.xlsx")
 
 ```
 
@@ -134,32 +123,19 @@ tibble(
 
 For performing a collostructional analysis, we have to know how often a lemma attested in the open slot of the *mother of all* construction occurs in the ENCOW corpus as a whole. For this purpose, we read in the ENCOW word list (available at [webcorpora.org](https://www.webcorpora.org/opendata/frequencies/english/)).
 
-```{r wordlist, message = FALSE, cache = TRUE, eval = FALSE}
+```{r wordlist, eval = FALSE}
 
-# not in repository,
-# available at webcorpora.org after registration
-
-# frequencies for relevant hits available at ../data/mother_of_all_with_encow_frequencies.csv
-
-encow <- fread("/Volumes/My Passport/ENCOW word lists/encow16ax.lp.tsv",
+encow <- fread("/Users/stefanhartmann/sciebo/Tutorials/collostructions_tutorial/data/encow16ax.lp.tsv",
                header = F)
-# 
-# head(encow)
-# 
-# # only nouns
-# encow <- encow[V2 %in% c("NN", "NE")]
-# 
-# head(encow)
 
 ```
 
-
 This is a huge database, but we only need nouns and adjectives, so we drop the rest in order to speed up the next calculations. Also, we add more self-explanatory column names:
 
-```{r wlwrangling, cache = TRUE, eval = FALSE}
+```{r wlwrangling, eval = FALSE}
 
-# only nouns
-encow <- encow[V2 %in% c("NN", "NE")]
+# only nouns (Penn POS tags: NN(S)=common nouns, NNP(S)=proper names)
+encow <- encow[V2 %in% c("NN", "NNS", "NNP", "NNPS")]
 colnames(encow) <- c("Lemma", "POS", "Freq")
 
 # if something is attested both as NN and
@@ -193,7 +169,7 @@ write_excel_csv(d_tbl, "mother_of_all_with_encow_frequencies.csv")
 ```{r include = FALSE}
 
 # re-import
-d_tbl <- read_csv("../data/mother_of_all_with_encow_frequencies.csv")
+d_tbl <- read_csv("mother_of_all_with_encow_frequencies.csv")
 
 ```
 
@@ -211,7 +187,7 @@ Next, we perform a collexeme analysis using Flach's `collostructions` package.
 
 ```{r collex}
 
-# sum(encow$Freq): 1312973874
+# sum(encow$Freq): 1805183579
 
 # perform collexeme analysis
 collex(d_tbl, corpsize = 1312973874) %>% kbl() %>%  
@@ -221,137 +197,5 @@ collex(d_tbl, corpsize = 1312973874) %>% kbl() %>%
 ```
 
 
-# COCA
 
-```{r}
-
-# read data
-moa <- read_xlsx("../data/motherofall_COCA.xlsx")
-
-# full frequency list cannot be shared publicly
-# for license reasons, hence we work with the
-# list containing only the lemmas occurring in 
-# mother of all
-#coca <- fread("../coca_2017_lemma_frequency_list.txt", quote = "")
-coca <- fread("../data/coca_moa_lemma_frequencies.csv")
-
-# replace whitespaces in column names
-colnames(moa) <- gsub(" ", "_", colnames(moa))
-colnames(coca) <- c("No", "Lemma", "Freq")
-
-# omit false hits
-moa <- subset(moa, keep=="y")
-
-# types, tokens, and hapax legomena overall
-moa_tbl1 <- moa %>% select(lemma) %>% table %>% as_tibble() %>% rename(c(lemma = ".", Freq = "n") ) %>% arrange(desc(Freq))
-
-tibble(
-  Tokens = sum(moa_tbl1$Freq),
-  Types = nrow(moa_tbl1),
-  "Hapax Legomena" = length(which(moa_tbl1$Freq==1))
-)
-
-# generate input for collostructional analysis
-moa_lemmas <- moa$lemma %>% table %>% sort(decreasing = T) %>% as.data.frame(stringsAsFactors = F)
-colnames(moa_lemmas) <- c("Lemma", "Freq_in_cxn")
-all_lemmas <- coca[,Lemma, Freq]
-setcolorder(all_lemmas, c("Lemma", "Freq"))
-collex_input <- join.freqs(moa_lemmas, as.data.frame(all_lemmas), all = F)
-colnames(collex_input) <- c("Lemma", "cxn_freq", "cxn_all")
-collex_input <- subset(collex_input, cxn_all != 0)
-collex(collex_input, corpsize = sum(coca$Freq)) # %>% write_excel_csv("simple_collexeme_analysis.csv")
-
-
-# relative frequency ------------------------------------------------------
-
-# get COCA frequencies
-coca_freq <- read_xlsx("../data/COCA2017_total_frequencies.xlsx")
-
-# tabulate mother frequency
-moa_tbl <- table(moa$Year) %>% as.data.frame(stringsAsFactors = F)
-colnames(moa_tbl) <- c("YEAR", "Freq")
-moa_tbl$YEAR <- as.numeric(moa_tbl$YEAR)
-moa_tbl <- left_join(coca_freq, moa_tbl, by = "YEAR")
-moa_tbl$pmw <- (moa_tbl$Freq / moa_tbl$TOTAL) * 1e06
-
-# plot
-# png("mother_of_all_coca_freq.png", width = 6.5, height = 5, un = "in", res = 300)
-plot(moa_tbl$YEAR, moa_tbl$pmw, pch = 20, col = "blue",
-     ylab = "Frequency per million words", xlab = "Year",
-     main = expression(paste("[", italic("mother of all"), " X], COCA")))
-abline(lm(moa_tbl$pmw ~ moa_tbl$YEAR), lty = 2, col = "darkgrey")
-# dev.off()
-
-# types per decade
-moa_types <- moa %>% group_by(Decade) %>% summarise(
-  types = length(unique(lemma)),
-  n = n()
-)
-
-# types per year
-moa_types_year <- moa %>% group_by(Year) %>% summarise(
-  types = length(unique(lemma))
-)
-
-
-# add to table with total frequencies
-moa_tbl <- left_join(moa_types_year, moa_tbl, by = c("Year" = "YEAR"))
-moa_tbl <- rename(moa_tbl, "YEAR" = "Year")
-moa_tbl$types_pmw <- (moa_tbl$types / moa_tbl$TOTAL) * 1e6
-
-# coca_freq per dcade
-coca_freq$Decade <- floor(coca_freq$YEAR/10)*10
-
-coca_freq_decade <- coca_freq %>% group_by(Decade) %>% summarise(
-  n = sum(TOTAL)
-)
-
-# types per decade
-moa_types <- left_join(moa_types, coca_freq_decade)
-moa_types$rel <- moa_types$types / moa_types$n
-moa_types$rel %>% plot
-moa_types$ttr <- moa_types$types / moa_types$n
-
-# distribution of hapaxes
-hapaxes <- table(moa$lemma) %>% as.data.frame %>% filter(Freq==1) %>% select(Var1) %>% as.vector
-hapaxes <- as.character(hapaxes$Var1)
-moa$hapax <- ifelse(moa$lemma %in% hapaxes, "y", "n")
-
-moa_hapaxes <- moa %>% group_by(Decade) %>% summarise(
-  hapaxes = length(which(hapax=="y")),
-  n = n()
-)
-
-# plot potential productivity
-moa_hapaxes$pp <- moa_hapaxes$hapaxes / moa_hapaxes$n
-
-par(mfrow = c(1,3))
-#png("types_tokens_mother_COCA.png", width = 12, height = 4, un = "in", res = 300)
-par(mfrow=c(1,3))
-par(mar = c(5.1, 5.1, 5.1, 2.1))
-plot(moa_tbl$YEAR, moa_tbl$pmw, pch = 20, col = "blue",
-     ylab = "Frequency per million words", xlab = "Year",
-     main = expression(paste(bold("["), bolditalic("mother of all"), bold(" X], COCA"))),
-     cex = 2, cex.lab = 2, cex.axis=1.5)
-abline(lm(moa_tbl$pmw ~ moa_tbl$YEAR), lty = 2, col = "darkgrey", lwd = 2)
-points(moa_tbl$YEAR, moa_tbl$types_pmw, col = rgb(1,0,0,.5), pch = 18, cex = 1.3)
-
-plot(moa_types$Decade, moa_types$ttr,
-     type = "b", pch=18,
-     ylab = "Types / Tokens", xlab = "Decade",
-     main = "Type-Token Ratio, COCA",
-     lwd = 2, col = "blue", cex = 2, cex.lab = 2, cex.axis=1.5)
-
-plot(moa_hapaxes$Decade, moa_hapaxes$pp, type = "b", pch=18,
-     ylab = "Proportion hapaxes", xlab = "Decade",
-     main = "Potential productivity \n (proportion of hapax legomena), COCA",
-     lwd = 2, col = "blue", cex = 2, cex.lab = 2, cex.axis=1.5)
-# dev.off()
-par(mar = c(5.1, 4.1, 4.1, 2.1))
-par(mfrow=c(1,1))
-
-
-```
-
-
-
+[Back to top page](https://hartmast.github.io/Attack_of_the_snowclones/)
