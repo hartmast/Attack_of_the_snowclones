@@ -1,8 +1,14 @@
 ---
 title: "The mother of all X"
-author: "Stefan Hartmann"
-date: "27/09/2019"
-output: html_document
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float: true
+    collapsed: false
+    df_print: paged
 ---
 
 ```{r setup, include=FALSE}
@@ -68,7 +74,7 @@ The data were exported to the XML file mother_of_all.xml, which is imported in t
 
 ```{r import, message = FALSE, warning = FALSE}
 
-d <- getNSE("mother_of_all.xml", xml = TRUE, context_tags = FALSE, verbose = FALSE)
+d <- getNSE("../data/mother_of_all.xml", xml = TRUE, context_tags = FALSE, verbose = FALSE)
 
 ```
 
@@ -80,7 +86,7 @@ The concordance is exported for annotation, the annotated file is then read in.
 ```{r anno, message = FALSE, warning = FALSE}
 
 # write_excel_csv(d, "mother_of_all_ENCOW.csv")
-d <- read_xlsx("mother_of_all_ENCOW.xlsx")
+d <- read_xlsx("../data/mother_of_all_ENCOW.xlsx")
 
 ```
 
@@ -162,14 +168,14 @@ d_tbl <- left_join(d_tbl, encow, by = "Lemma")
 ```{r include = FALSE, eval = FALSE}
 
 # export
-write_excel_csv(d_tbl, "mother_of_all_with_encow_frequencies.csv")
+# write_excel_csv(d_tbl, "../data/mother_of_all_with_encow_frequencies.csv")
 
 ```
 
 ```{r include = FALSE}
 
 # re-import
-d_tbl <- read_csv("mother_of_all_with_encow_frequencies.csv")
+d_tbl <- read_csv("../data/mother_of_all_with_encow_frequencies.csv")
 
 ```
 
