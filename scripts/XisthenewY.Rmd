@@ -1,6 +1,6 @@
 ---
 title: "X is the new Y"
-author: "Authors"
+author: "Tobias Ungerer & Stefan Hartmann"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output: 
   html_document:
@@ -29,7 +29,7 @@ Install and load packages
 
 ```{r pkg, message = FALSE, warning = FALSE, results='hide'}
 # install CRAN packages (if not yet installed)
-sapply(c("data.table", "tidyverse", "devtools", "readxl", "kableExtra", "ngram", "networkD3", "igraph", "network", "patchwork", "koRpus", "pbapply", "tidytext", "cluster", "ggrepel", "animation", "kableExtra", "DT"), function(x) if(!is.element(x, installed.packages())) install.packages(x, dependencies = T))
+sapply(c("data.table", "tidyverse", "devtools", "readxl", "kableExtra", "ngram", "networkD3", "igraph", "network", "patchwork", "koRpus", "pbapply", "tidytext", "cluster", "ggrepel", "animation", "kableExtra", "DT"), function(x) if(!is.element(x, installed.packages())) install.packages(x, dependencies = T, repos = "http://cran.us.r-project.org"))
 # install non-CRAN packages (if not yet installed)
 if(!is.element("concordances", installed.packages())) {
 devtools::install_github("hartmast/concordances")
@@ -213,20 +213,20 @@ tbl %>% ggplot(aes(x = concept_x, y = concept_y, fill = log0(Freq))) +
     theme(legend.text = element_text(size = 18)) +
     theme(legend.title = element_text(size = 18, face = "bold")) +
     theme(text = element_text(size = 18))
-    )
+    ) + guides(fill = 'none')
  
 ( p2 <- tbl %>% filter(Freq > 0) %>% 
   ggplot(aes(x = concept_x, y = concept_y, fill = log0(Freq_noself), label = Freq_noself)) +
   geom_tile() + scale_fill_gradient(low = "yellow", high = "darkred") +
   guides(fill = guide_legend(title = "LogFreq")) + theme_classic() +
   theme(axis.text.x = element_text(angle=45, hjust=.9)) +
-  geom_text(col = ifelse(log(filter(tbl, Freq > 0)$Freq_noself > 6), "black", "white"), size = 4) ) +
+  geom_text(col = ifelse(log(filter(tbl, Freq > 0)$Freq_noself > 6), "black", "white"), size = 4) +
   theme(axis.text = element_text(size = 18)) +
   theme(axis.title = element_text(size = 18)) +
   theme(strip.text = element_text(size = 18)) +
   theme(legend.text = element_text(size = 18)) +
   theme(legend.title = element_text(size = 18, face = "bold")) +
-  theme(text = element_text(size = 18))
+  theme(text = element_text(size = 18)) + guides(fill = "none") )
   
 ```
 
