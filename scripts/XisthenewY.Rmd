@@ -297,8 +297,15 @@ This dataset can now be used as input for distinctive collexeme analysis.
 
 ```{r collexanal}
 
-collex(lx, corpsize = 1805183579) %>% datatable() %>% formatSignif(columns = c("OBS", "EXP", "COLL.STR.LOGL"), digits=3)
-collex(ly, corpsize = 1805183579) %>% datatable() %>% formatSignif(columns = c("OBS", "EXP", "COLL.STR.LOGL"), digits=3)
+# get total frequency of all nouns and adjectives
+# in the ENCOW corpus
+#encow <- vroom("/Users/stefanhartmann/Downloads/encow16ax.lp.tsv.gz", delim = "\t", quote = "", col_names = c("lemma", "POS", "Freq"))
+
+# filter(encow, POS %in% c("NN", "NE", "JJ", "JJR", "JJS")) %>% select(Freq) %>% sum # result: 1967348249
+
+
+collex(lx, corpsize = 1967348249) %>% datatable() %>% formatSignif(columns = c("OBS", "EXP", "COLL.STR.LOGL"), digits=5)
+collex(ly, corpsize = 1967348249) %>% datatable() %>% formatSignif(columns = c("OBS", "EXP", "COLL.STR.LOGL"), digits=5)
 
 # collex.dist(lx) %>% datatable() %>% formatSignif(columns = c("E.CXN1", "E.CXN2", "COLL.STR.LOGL"), digits=3)
 # collex.dist(ly) %>% datatable() %>% formatSignif(columns = c("E.CXN1", "E.CXN2", "COLL.STR.LOGL"), digits=3)

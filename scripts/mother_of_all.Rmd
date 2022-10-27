@@ -183,6 +183,7 @@ Next, we perform a collexeme analysis using Flach's `collostructions` package.
 # perform collexeme analysis
 collex(as.data.frame(d_tbl), corpsize = 1805183579) %>% kbl() %>%  
    kable_material(c("striped", "hover")) %>% scroll_box(width = "800px", height = "200px")
+
 ```
 
 
