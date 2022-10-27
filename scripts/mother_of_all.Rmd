@@ -30,7 +30,7 @@ Install and load packages
 
 ```{r packages, warning = FALSE, message = FALSE}
 # install CRAN packages (if not yet installed)
-sapply(c("data.table", "tidyverse", "devtools", "readxl", "kableExtra", "ngram", "networkD3", "igraph", "network", "patchwork", "koRpus", "pbapply", "tidytext", "cluster", "ggrepel", "animation"), function(x) if(!is.element(x, installed.packages())) install.packages(x, dependencies = T, repos = "http://cran.us.r-project.org"))
+sapply(c("data.table", "tidyverse", "devtools", "readxl", "kableExtra", "ngram", "networkD3", "igraph", "network", "patchwork", "koRpus", "pbapply", "tidytext", "cluster", "ggrepel", "animation", "vroom", "ggrepel", "Rtsne"), function(x) if(!is.element(x, installed.packages())) install.packages(x, dependencies = T, repos = "http://cran.us.r-project.org"))
 # install non-CRAN packages (if not yet installed)
 if(!is.element("concordances", installed.packages())) {
 devtools::install_github("hartmast/concordances")
@@ -44,6 +44,12 @@ if(!is.element("concordances", installed.packages())) {
   devtools::install_github("hartmast/concordances", ref = "f4ca785
 ")
 }
+
+# install "wordVectors" if not yet installed
+if(!is.element("wordVectors", installed.packages())) {
+devtools::install_github("bmschmidt/wordVectors")
+}
+
 # load "concordances"
 library(concordances)
 library(tidyverse)
@@ -51,6 +57,11 @@ library(readxl)
 library(data.table)
 library(kableExtra)
 library(collostructions)
+library(wordVectors)
+library(vroom)
+library(ggrepel)
+library(cluster)
+library(patchwork)
 ```
 
 # ENCOW
@@ -284,3 +295,163 @@ par(mar = c(5.1, 4.1, 4.1, 2.1))
 par(mfrow=c(1,1))
 ```
 
+
+## Distributional semantics
+
+To assess the semantics of the slot fillers in more detail, we use distributional semantics. More specifically, we draw on word2vec. Word2vec is originally the name of a software comprising two main algorithms for representing words in terms of dense vectors, but the term has become virtually synonymous with the approach itself. We use the R package [wordVectors](https://github.com/bmschmidt/wordVectors/), which builds on the original word2vec code. We use the skip-gram approach, which is generally considered to work well with a small amount of training data (see e.g. [this tutorial](https://towardsdatascience.com/nlp-101-word2vec-skip-gram-and-cbow-93512ee24314)) than the alternative continuous-bag-of-words (cbow) approach. The model was trained based on the first of the 17 downloadable sentence shuffles of ENCOW using the following code:
+
+```{r word2vec, eval = FALSE}
+
+
+# read data & export text files without annotation
+# Note: the downloadable file containing the first sentence shuffle
+# of ENCOW has been split in c. 100 parts, named xaa, xab etc. etc.,
+# hence the pattern in the list.file command below. The algorithm
+# produces a txt file containing only the words, without annotations
+f <- list.files("/Volumes/INTENSO/Corpora/ENCOW/", pattern = "^x..", full.names = T) 
+
+for(i in 1:length(f)) {
+  d <- vroom_lines(f[i])
+  d <- gsub("^<.*|\t.*", "", d)
+  d <- d[d!=""]
+  vroom_write_lines(d, paste0("/Volumes/INTENSO/Corpora/ENCOW/encow_word2vec_training/encow16b_words_for_training001", i, ".txt"))
+  print(i)
+}
+
+# Next, the prep_word2vec command from the WordVectors package is used
+# to prepare the training file, containing just the words in lowercase,
+# without punctuation. The model is then trained on the basis of this
+# file and exported.
+prep_word2vec(origin="/Volumes/INTENSO/Corpora/ENCOW/encow_word2vec_training/words", destination="/Volumes/INTENSO/Corpora/ENCOW/encowa_w2v_words.txt", lowercase=T,bundle_ngrams=1)
+
+# train model:
+model <- train_word2vec("/Volumes/INTENSO/Corpora/ENCOW/encowa_w2v_words.txt", output_file  = "/Volumes/INTENSO/Corpora/ENCOW/encow_vectors_word_based.bin",vectors=100,threads=4,window=5,iter=3,negative_samples=5)
+
+# export:
+write_rds(model, "model.Rds")
+
+
+```
+
+We use this model to visualize the semantic proximity of the slot fillers. For dimensionality reduction, we use both Multidimensional Scaling (MDS) and t-distributed Stochastic Neighbor Embedding (t-SNE). (Only the latter is reported in the paper as it yields more convincing result; we initially worked with MDS and included the results here for the sake of completeness, and to allow for a comparison between the different results.)
+
+```{r distsem}
+
+# import the model
+model <- readRDS("/Users/stefanhartmann/sciebo/Projekte/snowclones/word2vec/model.Rds")
+
+# matrix of terms occurring in [mother of all X]'s open slot
+cosine_dist_matrix <- cosineDist(model[[moa_lemmas$Lemma, average = FALSE]], model[[moa_lemmas$Lemma, average = FALSE]])
+
+# multidimensional scaling
+cosine_dists <- cosine_dist_matrix %>% cmdscale() %>% as.data.frame() %>% rownames_to_column() %>% setNames(c("lemma", "V1", "V2"))
+
+# alternative: t-SNE
+cosine_rtsne <- cosine_dist_matrix %>% Rtsne::Rtsne()
+
+# we use Partitioning Around Medioids (PAM) to 
+# identify a small number of clusters (here: 3).
+# As the results are not really meaningful, we have
+# refrained from including it in the final analysis though.
+
+# get PAM clusters
+# for(i in 2:10) {
+#   print(pam(cosine_dists, i)$silinfo$avg.width)
+# }
+# 
+pams <- pam(cosine_dists, 3)$clustering
+
+# add frequency information
+moa_freqs <- moa$lemma %>% table %>% as_tibble() %>% setNames(c("lemma", "n"))
+
+# combine with MDS results
+cosine_dists <- left_join(cosine_dists, moa_freqs)
+
+# add log frequency
+cosine_dists$LogFreq <- log1p(cosine_dists$n)
+
+# 3 clusters
+cosine_dists$clusters <- pams
+
+
+# add Rtsne
+cosine_dists <- cbind(cosine_dists, setNames(as.data.frame(cosine_rtsne$Y), c("dim1", "dim2")))
+
+
+# visualize
+
+# add one column that only serves to increase the font
+# size of the remaining items (only for print version)
+
+cosine_dists <- rbind(cosine_dists,
+      data.frame(lemma = "",
+                 V1 = 0,
+                 V2 = 0,
+                 n = 0,
+                 LogFreq = 0.3,
+                 clusters = 1,
+                 dim1 = 0, dim2 = 0))
+
+
+set.seed(1994)
+ggplot(cosine_dists, aes(x = V1, y = V2, label = lemma, size = LogFreq, col = factor(clusters))) +
+  geom_text_repel(max.overlaps = 15) + 
+  guides(col = "none", size = "none") + theme_bw() + 
+  # theme(axis.text = element_text(size = 18)) +
+  # theme(axis.title = element_text(size = 18)) +
+  # theme(strip.text = element_text(size = 18)) +
+  # theme(legend.title = element_text(size = 18, face = "bold")) +
+  # theme(text = element_text(size = 18)) +
+  scale_color_viridis_d() + ylab("dim2") + xlab("dim1")
+
+# ggsave("distsem_moa_word2vec.png", width = 7, height = 6, dpi=500)
+
+
+# use RTsne instead
+set.seed(1994)
+ggplot(cosine_dists, aes(x = dim1, y = dim2, label = lemma, size = LogFreq)) +
+  geom_text_repel(max.overlaps = 15) + 
+  guides(size = "none") + theme_bw() + 
+  # theme(axis.text = element_text(size = 18)) +
+  # theme(axis.title = element_text(size = 18)) +
+  # theme(strip.text = element_text(size = 18)) +
+  # theme(legend.title = element_text(size = 18, face = "bold")) +
+  # theme(text = element_text(size = 18)) +
+  scale_color_viridis_d() + ylab("dim2") + xlab("dim1")
+# ggsave("distsem_moa_word2vec_tsne.png", width = 7, height = 6, dpi=500)
+ 
+```
+
+
+# Semantic distance between MOTHER and all X elements
+
+Finally, we compute the semantic distance between *mother* and all X elements, following the suggestion of a reviewer (thank you!):
+
+```{r}
+mother <- cosineDist(model[[c("mother", moa_lemmas$Lemma), average = FALSE]], model[[c("mother", moa_lemmas$Lemma), average = FALSE]])
+
+mother <- as.data.frame(mother)
+
+png("mothervsrest.png", width = 6.5, height = 5, un = "in", res = 300)
+mother[,which(colnames(mother)=="mother")] %>% hist(main = expression(paste("Cosine distance between ", italic("mother "), "and all X items")))
+dev.off()
+
+```
+
+# Alternative collostructional analysis
+
+Following Gries (2019), we separate association from frequency by using the log odds ratio as association measure and plotting frequency independently:
+
+```{r}
+
+(p1 <- collex(collex_input, corpsize = sum(coca$Freq), am = "odds") %>% ggplot(aes(x = log1p(OBS), y = log1p(COLL.STR.ODDS), label = COLLEX, col = log1p(OBS))) + geom_text() + theme_bw() + xlab("Log odds ratio") + ylab("Log Frequency") + scale_color_continuous(low = rgb(0,.7,1,.4), high = "black") + guides(col = 'none') + ggtitle("COCA") +theme(plot.title = element_text(face = "bold", hjust = 0.5)))
+
+(p2 <- collex(as.data.frame(d_tbl), corpsize = 1805183579, am = "odds") %>% ggplot(aes(x = log1p(OBS), y = log1p(COLL.STR.ODDS), label = COLLEX, col = log1p(OBS))) + geom_text() + theme_bw() + xlab("Log odds ratio") + ylab("Log Frequency") + scale_color_continuous(low = rgb(0,.7,1,.4), high = "black") + guides(col = 'none') + ggtitle("ENCOW") + theme(plot.title = element_text(face = "bold", hjust = 0.5)))
+
+p1 | p2
+
+
+# ggsave("collex_moa_coca_encow.png", height = 7, width = 13)
+
+
+```
