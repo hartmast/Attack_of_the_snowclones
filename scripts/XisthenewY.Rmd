@@ -293,7 +293,7 @@ ly <- filter(ly, Freq_encow > 0)
 ```
 
 
-This dataset can now be used as input for distinctive collexeme analysis.
+This dataset can now be used as input for simple collexeme analysis.
 
 ```{r collexanal}
 
@@ -304,8 +304,11 @@ This dataset can now be used as input for distinctive collexeme analysis.
 # filter(encow, POS %in% c("NN", "NE", "JJ", "JJR", "JJS")) %>% select(Freq) %>% sum # result: 1967348249
 
 
-collex(lx, corpsize = 1967348249) %>% datatable() %>% formatSignif(columns = c("OBS", "EXP", "COLL.STR.LOGL"), digits=5)
-collex(ly, corpsize = 1967348249) %>% datatable() %>% formatSignif(columns = c("OBS", "EXP", "COLL.STR.LOGL"), digits=5)
+left_join(collex(lx, corpsize = 1967348249, delta.p = T),
+select(collex(lx, corpsize = 1967348249, am = "odds"), COLLEX, COLL.STR.ODDS)) %>% datatable() %>% formatSignif(columns = c("OBS", "EXP", "COLL.STR.LOGL"), digits=5)
+
+left_join(collex(ly, corpsize = 1967348249, delta.p = T),
+select(collex(ly, corpsize = 1967348249, am = "odds"), COLLEX, COLL.STR.ODDS)) %>% datatable() %>% formatSignif(columns = c("OBS", "EXP", "COLL.STR.LOGL"), digits=5)
 
 # collex.dist(lx) %>% datatable() %>% formatSignif(columns = c("E.CXN1", "E.CXN2", "COLL.STR.LOGL"), digits=3)
 # collex.dist(ly) %>% datatable() %>% formatSignif(columns = c("E.CXN1", "E.CXN2", "COLL.STR.LOGL"), digits=3)

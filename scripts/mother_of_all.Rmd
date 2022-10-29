@@ -30,7 +30,7 @@ Install and load packages
 
 ```{r packages, warning = FALSE, message = FALSE}
 # install CRAN packages (if not yet installed)
-sapply(c("data.table", "tidyverse", "devtools", "readxl", "kableExtra", "ngram", "networkD3", "igraph", "network", "patchwork", "koRpus", "pbapply", "tidytext", "cluster", "ggrepel", "animation", "vroom", "ggrepel", "Rtsne"), function(x) if(!is.element(x, installed.packages())) install.packages(x, dependencies = T, repos = "http://cran.us.r-project.org"))
+sapply(c("data.table", "tidyverse", "devtools", "readxl", "kableExtra", "ngram", "networkD3", "igraph", "network", "patchwork", "koRpus", "pbapply", "tidytext", "cluster", "ggrepel", "animation", "vroom", "ggrepel", "Rtsne", "DT"), function(x) if(!is.element(x, installed.packages())) install.packages(x, dependencies = T, repos = "http://cran.us.r-project.org"))
 # install non-CRAN packages (if not yet installed)
 if(!is.element("concordances", installed.packages())) {
 devtools::install_github("hartmast/concordances")
@@ -62,6 +62,7 @@ library(vroom)
 library(ggrepel)
 library(cluster)
 library(patchwork)
+library(DT)
 ```
 
 # ENCOW
@@ -181,8 +182,11 @@ Next, we perform a collexeme analysis using Flach's `collostructions` package.
 ```{r collex}
 # sum(encow$Freq): 1805183579
 # perform collexeme analysis
-collex(as.data.frame(d_tbl), corpsize = 1805183579) %>% kbl() %>%  
-   kable_material(c("striped", "hover")) %>% scroll_box(width = "800px", height = "200px")
+
+left_join(collex(as.data.frame(d_tbl), corpsize = 1805183579, delta.p = TRUE),
+select(collex(as.data.frame(d_tbl), corpsize = 1805183579, am = "odds"), COLLEX, COLL.STR.ODDS)) %>% DT::datatable()  #kbl() %>%  
+   #kable_material(c("striped", "hover")) %>% scroll_box(width = "800px", height = "200px")
+
 
 ```
 
@@ -218,7 +222,11 @@ setcolorder(all_lemmas, c("Lemma", "Freq"))
 collex_input <- join.freqs(moa_lemmas, as.data.frame(all_lemmas), all = F)
 colnames(collex_input) <- c("Lemma", "cxn_freq", "cxn_all")
 collex_input <- subset(collex_input, cxn_all != 0)
-collex(collex_input, corpsize = sum(coca$Freq)) # %>% write_excel_csv("simple_collexeme_analysis.csv")
+
+left_join(collex(collex_input, corpsize = sum(coca$Freq), delta.p = T),
+select(collex(collex_input, corpsize = sum(coca$Freq), am = "odds"), COLLEX, COLL.STR.ODDS)) %>% DT::datatable()
+
+# %>% write_excel_csv("simple_collexeme_analysis.csv")
 # relative frequency ------------------------------------------------------
 # get COCA frequencies
 coca_freq <- read_xlsx("../data/COCA2017_total_frequencies.xlsx")
@@ -232,7 +240,8 @@ moa_tbl$pmw <- (moa_tbl$Freq / moa_tbl$TOTAL) * 1e06
 # png("mother_of_all_coca_freq.png", width = 6.5, height = 5, un = "in", res = 300)
 plot(moa_tbl$YEAR, moa_tbl$pmw, pch = 20, col = "blue",
      ylab = "Frequency per million words", xlab = "Year",
-     main = expression(paste("[", italic("mother of all"), " X], COCA")))
+     main = "Token and type frequencies")
+     #main = expression(paste("[", italic("mother of all"), " X], COCA")))
 abline(lm(moa_tbl$pmw ~ moa_tbl$YEAR), lty = 2, col = "darkgrey")
 # dev.off()
 # types per decade
@@ -269,12 +278,13 @@ moa_hapaxes <- moa %>% group_by(Decade) %>% summarise(
 # plot potential productivity
 moa_hapaxes$pp <- moa_hapaxes$hapaxes / moa_hapaxes$n
 par(mfrow = c(1,3))
-# png("types_tokens_mother_COCA.png", width = 12, height = 4, un = "in", res = 300)
+#png("types_tokens_mother_COCA.png", width = 12, height = 4, un = "in", res = 300)
 par(mfrow=c(1,3))
 par(mar = c(5.1, 5.1, 5.1, 2.1))
 plot(moa_tbl$YEAR, moa_tbl$pmw, pch = 20, col = "blue",
      ylab = "Frequency per million words", xlab = "Year",
-     main = expression(paste(bold("["), bolditalic("mother of all"), bold(" X], COCA"))),
+     main = "Token and type frequencies",
+     #main = expression(paste(bold("["), bolditalic("mother of all"), bold(" X], COCA"))),
      cex = 2, cex.lab = 2, cex.axis=1.5)
 abline(lm(moa_tbl$pmw ~ moa_tbl$YEAR), lty = 2, col = "darkgrey", lwd = 2)
 points(moa_tbl$YEAR, moa_tbl$types_pmw, col = rgb(1,0,0,.5), pch = 18, cex = 1.3)
@@ -296,6 +306,24 @@ par(mar = c(5.1, 4.1, 4.1, 2.1))
 par(mfrow=c(1,1))
 ```
 
+
+# Collostructional analysis using log odds
+
+Following Gries (2019), we separate association from frequency by using the log odds ratio as association measure and plotting frequency independently:
+
+```{r}
+
+(p1 <- collex(collex_input, corpsize = sum(coca$Freq), am = "odds") %>% ggplot(aes(x = log1p(OBS), y = log1p(COLL.STR.ODDS), label = COLLEX, col = log1p(OBS))) + geom_text() + theme_bw() + xlab("Log odds ratio") + ylab("Log Frequency") + scale_color_continuous(low = rgb(0,.7,1,.4), high = "black") + guides(col = 'none') + ggtitle("COCA") +theme(plot.title = element_text(face = "bold", hjust = 0.5)))
+
+(p2 <- collex(as.data.frame(d_tbl), corpsize = 1805183579, am = "odds") %>% ggplot(aes(x = log1p(OBS), y = log1p(COLL.STR.ODDS), label = COLLEX, col = log1p(OBS))) + geom_text() + theme_bw() + xlab("Log odds ratio") + ylab("Log Frequency") + scale_color_continuous(low = rgb(0,.7,1,.4), high = "black") + guides(col = 'none') + ggtitle("ENCOW") + theme(plot.title = element_text(face = "bold", hjust = 0.5)))
+
+p1 | p2
+
+
+# ggsave("collex_moa_coca_encow.png", height = 7, width = 13)
+
+
+```
 
 ## Distributional semantics
 
@@ -439,20 +467,3 @@ dev.off()
 
 ```
 
-# Alternative collostructional analysis
-
-Following Gries (2019), we separate association from frequency by using the log odds ratio as association measure and plotting frequency independently:
-
-```{r}
-
-(p1 <- collex(collex_input, corpsize = sum(coca$Freq), am = "odds") %>% ggplot(aes(x = log1p(OBS), y = log1p(COLL.STR.ODDS), label = COLLEX, col = log1p(OBS))) + geom_text() + theme_bw() + xlab("Log odds ratio") + ylab("Log Frequency") + scale_color_continuous(low = rgb(0,.7,1,.4), high = "black") + guides(col = 'none') + ggtitle("COCA") +theme(plot.title = element_text(face = "bold", hjust = 0.5)))
-
-(p2 <- collex(as.data.frame(d_tbl), corpsize = 1805183579, am = "odds") %>% ggplot(aes(x = log1p(OBS), y = log1p(COLL.STR.ODDS), label = COLLEX, col = log1p(OBS))) + geom_text() + theme_bw() + xlab("Log odds ratio") + ylab("Log Frequency") + scale_color_continuous(low = rgb(0,.7,1,.4), high = "black") + guides(col = 'none') + ggtitle("ENCOW") + theme(plot.title = element_text(face = "bold", hjust = 0.5)))
-
-p1 | p2
-
-
-# ggsave("collex_moa_coca_encow.png", height = 7, width = 13)
-
-
-```
