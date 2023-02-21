@@ -259,15 +259,10 @@ For performing a collostructional analysis, we have to know how often a lemma at
 # not in repository,
 # available at webcorpora.org after registration
 # frequencies for relevant hits available at ../data/mother_of_all_with_encow_frequencies.csv
-encow <- fread("/Volumes/My Passport/ENCOW word lists/encow16ax.lp.tsv",
+encow <- fread("/Users/stefanhartmann/sciebo/Tutorials/collostructions_tutorial/data/encow16ax.lp.tsv.gz",
                header = F)
-# 
-# head(encow)
-# 
-# # only nouns
-# encow <- encow[V2 %in% c("NN", "NE")]
-# 
-# head(encow)
+
+
 ```
 
 
@@ -477,6 +472,26 @@ mother[,which(colnames(mother)=="mother")] %>% hist(main = expression(paste("Cos
 
 ```
 
+
+For comparison, we check the semantic distance between *mother* and a random sample of nouns.
+
+```{r, eval = F}
+
+# get a sample of nouns that occur at least 1000 times
+set.seed(2023)
+spl_n <- sample(filter(encow, Freq >=1000)$Lemma, 10000)
+write_rds(spl_n, "spl_n.Rds")
+
+```
+
+```{r}
+
+spl_n <- read_rds("spl_n.Rds")
+spl_n_dist <- cosineDist(model[[c("mother", spl_n), average = FALSE]], model[[c("mother", spl_n), average = FALSE]])
+hist(spl_n_dist)
+
+```
+
 Finally, we check the range of attested cosine distances in the full vocabulary contained in the model to get a better impression of the overall range of semantic distances beyond the specific constructions we investigate.
 
 ```{r}
@@ -484,12 +499,14 @@ Finally, we check the range of attested cosine distances in the full vocabulary 
 # range of semantic distances across the entire vocabulary
 # in the model
 
-
+set.seed(2023)
 spl <- sample(rownames(model), 10000)
 spl_dist <- cosineDist(model[[spl, average = F]], model[[spl, average = F]]) 
 
 hist(spl_dist)
 max(spl_dist)
+
+
 
 ```
 

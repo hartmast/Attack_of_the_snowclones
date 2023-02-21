@@ -12,3 +12,9 @@ forcats
 readxl
 kableExtra
 collostructions
+wordVectors
+vroom
+ggrepel
+cluster
+patchwork
+DT
