@@ -467,7 +467,10 @@ mother <- cosineDist(model[[c("mother", moa_lemmas$Lemma), average = FALSE]], mo
 mother <- as.data.frame(mother)
 
 # png("mothervsrest.png", width = 6.5, height = 5, un = "in", res = 300)
-mother[,which(colnames(mother)=="mother")] %>% hist(main = expression(paste("Cosine distance between ", italic("mother "), "and all X items")))
+mother[,which(colnames(mother)=="mother")] %>% 
+  hist(breaks = seq(from=0, to=1.4, by=0.05), main = expression(paste("Cosine distance between ", italic("mother "), "and all X items"))
+       #, xlim = c(0,1.4)
+       )
 # dev.off()
 
 ```
@@ -488,7 +491,7 @@ write_rds(spl_n, "spl_n.Rds")
 
 spl_n <- read_rds("spl_n.Rds")
 spl_n_dist <- cosineDist(model[[c("mother", spl_n), average = FALSE]], model[[c("mother", spl_n), average = FALSE]])
-hist(spl_n_dist)
+hist(spl_n_dist, breaks = seq(from=0, to=1.4, by=0.05))
 
 ```
 
@@ -503,7 +506,7 @@ set.seed(2023)
 spl <- sample(rownames(model), 10000)
 spl_dist <- cosineDist(model[[spl, average = F]], model[[spl, average = F]]) 
 
-hist(spl_dist)
+hist(spl_dist, breaks = seq(from=0, to=1.4, by=0.05))
 max(spl_dist)
 
 
