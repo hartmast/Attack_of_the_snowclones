@@ -1,6 +1,6 @@
 ---
 title: "The mother of all X"
-author: "Authors"
+author: "Tobias Ungerer & Stefan Hartmann"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output: 
   html_document:
@@ -259,7 +259,7 @@ For performing a collostructional analysis, we have to know how often a lemma at
 # not in repository,
 # available at webcorpora.org after registration
 # frequencies for relevant hits available at ../data/mother_of_all_with_encow_frequencies.csv
-encow <- fread("/Users/stefanhartmann/sciebo/Tutorials/collostructions_tutorial/data/encow16ax.lp.tsv.gz",
+encow <- fread("encow16ax.lp.tsv.gz",
                header = F)
 
 
